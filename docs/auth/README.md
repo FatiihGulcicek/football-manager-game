@@ -21,9 +21,13 @@ Bu sprint yalnızca tasarım sprintidir. Auth modülü, endpoint, Prisma migrati
 - İstemci tarafından gönderilen role veya yetki bilgisi kabul edilmeyecektir.
 - PostgreSQL kalıcı auth verisinin ana kaynağıdır.
 - Redis rate limit, progressive delay ve kısa ömürlü güvenlik sayaçları için kullanılacaktır.
-- Access token kısa ömürlü JWT olacaktır.
+- Access token kısa ömürlü ES256 JWT olacaktır; `kid`, `iss` ve `aud` doğrulanacaktır.
 - Refresh token opaque üretilecek ve veritabanında yalnızca hash değeri saklanacaktır.
 - Her cihaz veya tarayıcı bağlamı ayrı `UserSession` kaydıyla temsil edilecektir.
+- Her authenticated request `sid` üzerinden session-active kontrolünden geçecektir.
+- Production refresh cookie `__Host-refresh_token` adıyla host-only, `Path=/`, `Secure`, `HttpOnly`, `SameSite=Lax` olarak taşınacaktır.
+- Register akışı hesap varlığını açıklamayan 202 generic response döndürecektir.
+- Redis kesintisinde bounded in-memory fallback limiter kullanılacak, health degraded olacaktır.
 - Admin ve oyuncu girişi aynı auth altyapısını kullanacak, fark role guard ile uygulanacaktır.
 
 ## Sınırlar

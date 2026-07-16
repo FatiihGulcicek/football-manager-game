@@ -112,7 +112,7 @@ Bu dosya ADR benzeri karar kayıtlarını tutar. Kararlar değişirse yeni karar
 - Durum: Kabul edildi
 - Bağlam: Web ve PWA istemcileri API'ye sık istek gönderecek, ancak uzun ömürlü bearer token çalınma riski büyüktür.
 - Karar: Access token kısa ömürlü JWT olacak ve varsayılan süre 15 dakika kabul edilecektir.
-- Sonuçlar: JWT payload minimum tutulur; `sub`, `role`, `sid`, `iat` ve `exp` dışına hassas veri eklenmez.
+- Sonuçlar: JWT payload minimum tutulur; `sub`, `role`, `sid`, `iat`, `exp`, `iss` ve `aud` dışına hassas veri eklenmez.
 
 ## DEC-015: Refresh token opaque ve hashlenmiş biçimde saklanacaktır
 
@@ -153,3 +153,59 @@ Bu dosya ADR benzeri karar kayıtlarını tutar. Kararlar değişirse yeni karar
 - Bağlam: Login, register, e-posta doğrulama ve şifre sıfırlama akışları kullanıcı hesabının varlığını saldırgana açıklayabilir.
 - Karar: Auth hata mesajları e-posta varlığı, parola yanlışlığı veya verification/reset hesabı hakkında gereksiz ayrıntı vermeyecektir.
 - Sonuçlar: Kullanıcı deneyimi ve güvenlik dengesi endpoint bazında tasarlanmalıdır; detaylı nedenler response yerine audit log ve internal metric içinde tutulur.
+
+## DEC-020: JWT access tokenlar ES256 ile imzalanır ve kid/iss/aud kullanır
+
+- Tarih: 2026-07-16
+- Durum: Kabul edildi
+- Bağlam: Access token doğrulaması key rotation, issuer ve audience ayrımı gerektirir.
+- Karar: JWT access tokenlar ES256 ile imzalanacak; header içinde `kid`, payload içinde `iss=football-manager-auth` ve `aud=football-manager-api` bulunacaktır.
+- Sonuçlar: Private key yalnız signing tarafında tutulur; public keyler doğrulayıcılara dağıtılabilir ve önceki key sınırlı doğrulama penceresinde desteklenir.
+
+## DEC-021: Her authenticated request session-active kontrolünden geçer
+
+- Tarih: 2026-07-16
+- Durum: Kabul edildi
+- Bağlam: Kısa access token TTL, logout, password reset, account disable veya role change sonrası anlık iptal için tek başına yeterli değildir.
+- Karar: JWT signature ve expiry doğrulamasından sonra her authenticated request `sid` üzerinden session-active kontrolünden geçecektir.
+- Sonuçlar: Redis kısa TTL cache performans için kullanılabilir; revoke olaylarında cache invalidate edilir ve Redis kesintisinde DB source of truth olarak kullanılır.
+
+## DEC-022: Refresh rotation atomik DB transaction ile yapılır
+
+- Tarih: 2026-07-16
+- Durum: Kabul edildi
+- Bağlam: Concurrent refresh istekleri aynı parent token için iki geçerli child token üretebilir veya reuse detection davranışını belirsizleştirebilir.
+- Karar: Refresh rotation DB transaction içinde yapılacak; eski token `usedAt IS NULL` koşullu atomic update ile işaretlenecek ve yeni child token aynı transaction içinde oluşturulacaktır.
+- Sonuçlar: MVP'de kısa parallel yarış `AUTH_REFRESH_CONFLICT` ile reddedilir; grace window dışındaki tekrar kullanım replay kabul edilerek session revoke edilir.
+
+## DEC-023: Production refresh cookie __Host-refresh_token olarak host-only kullanılır
+
+- Tarih: 2026-07-16
+- Durum: Kabul edildi
+- Bağlam: Refresh token uzun ömürlüdür ve cookie scope yanlış yapılandırılırsa sibling domain veya path riskleri doğar.
+- Karar: Production refresh cookie adı `__Host-refresh_token` olacak, Domain attribute kullanılmayacak, `Path=/`, `Secure`, `HttpOnly` ve `SameSite=Lax` uygulanacaktır.
+- Sonuçlar: Cookie `api.example.com` host scope içinde kalır; `__Host-` gereksinimi nedeniyle dar path yerine bilinçli olarak `Path=/` kullanılır.
+
+## DEC-024: Redis kesintisinde bounded in-memory rate-limit fallback kullanılır
+
+- Tarih: 2026-07-16
+- Durum: Kabul edildi
+- Bağlam: Redis auth rate limit için ana store olsa da kısa kesintilerde sistem ne tamamen açık ne de tamamen kapalı kalmalıdır.
+- Karar: Redis down olduğunda process-local sliding-window fallback limiter çalışacak ve limitler normal Redis limitlerinden daha muhafazakar olacaktır.
+- Sonuçlar: Health degraded olur ve fallback mode metric/log ile görünür hale gelir; çok instance ortamında bu fallback sınırlı koruma sağlar.
+
+## DEC-025: Role değişikliği tüm aktif sessionları revoke eder
+
+- Tarih: 2026-07-16
+- Durum: Kabul edildi
+- Bağlam: Kullanıcının rolü değiştiğinde eski access token içindeki role claim'i yeni yetki durumuyla çelişebilir.
+- Karar: Role değişikliği kullanıcının tüm aktif sessionlarını revoke eder ve yeni rol yalnız yeni login ile alınır.
+- Sonuçlar: Mevcut access tokenlar session-active kontrolü nedeniyle hemen etkisiz olur; `AUTH_ROLE_CHANGED` audit olayı actor/target ayrımıyla yazılır.
+
+## DEC-026: Audit ve login güvenlik kayıtları kullanıcı silinince SetNull ile korunur
+
+- Tarih: 2026-07-16
+- Durum: Kabul edildi
+- Bağlam: Güvenlik incelemesi ve abuse analizi, kullanıcı hesabı silinse bile sınırlı retention süresince olay kayıtlarına ihtiyaç duyar.
+- Karar: `LoginAttempt.userId`, `AuditLog.actorUserId` ve `AuditLog.targetUserId` ilişkileri kullanıcı silindiğinde `SetNull` davranışıyla korunacaktır.
+- Sonuçlar: DEC-012 operasyonel kullanıcı verileri için cascade yaklaşımını korur; güvenlik/audit kayıtları kimliksizleştirilerek retention süresince saklanabilir.
