@@ -8,6 +8,10 @@ import { AUTH_CONFIG, AuthConfig } from '../../config/auth.config';
 import { PrismaService } from '../../database/prisma.service';
 import { AUTH_AUDIT_EVENTS } from '../constants/auth-audit-events';
 import { AccessTokenService } from '../services/access-token.service';
+import {
+  AUTH_REFRESH_INVALID_BODY_CODE,
+  AUTH_REFRESH_INVALID_BODY_MESSAGE
+} from '../errors/auth-refresh-invalid-body.exception';
 import { LoginService } from '../services/login.service';
 import { RefreshRateLimitService } from '../services/refresh-rate-limit.service';
 import { RefreshService } from '../services/refresh.service';
@@ -55,7 +59,7 @@ describe('AuthController refresh', () => {
     app = undefined;
   });
 
-  it('should rotate a valid refresh token, issue a new access token, and overwrite the cookie', async () => {
+  it('should continue refresh flow with an empty body, issue a new access token, and overwrite the cookie', async () => {
     const database = createInMemoryRefreshDatabase();
     seedRefreshSession(database, {
       userRole: UserRole.ADMIN
@@ -154,7 +158,7 @@ describe('AuthController refresh', () => {
     );
   });
 
-  it('should reject missing, body, and header-supplied refresh tokens', async () => {
+  it('should reject missing cookie and header-supplied refresh tokens', async () => {
     const database = createInMemoryRefreshDatabase();
     seedRefreshSession(database);
     app = await createAuthRefreshApplication(database, config);
@@ -165,16 +169,78 @@ describe('AuthController refresh', () => {
       .set('X-Refresh-Token', 'parent-refresh-token')
       .send({})
       .expect(401);
-    await request(app.getHttpServer())
+
+    expect(missingCookie.body.error.code).toBe('AUTH_REFRESH_INVALID');
+    expect(readSetCookie(missingCookie)).toHaveLength(0);
+    expect(database.refreshTokens[0].usedAt).toBeNull();
+  });
+
+  it('should reject a refreshToken request body with the standard auth error envelope', async () => {
+    const database = createInMemoryRefreshDatabase();
+    seedRefreshSession(database);
+    app = await createAuthRefreshApplication(database, config);
+
+    const response = await request(app.getHttpServer())
       .post('/auth/refresh')
+      .set('X-Request-Id', 'req-invalid-body-token')
       .set('Cookie', `${config.cookieName}=parent-refresh-token`)
       .send({
         refreshToken: 'parent-refresh-token'
       })
       .expect(400);
 
-    expect(missingCookie.body.error.code).toBe('AUTH_REFRESH_INVALID');
-    expect(readSetCookie(missingCookie)).toHaveLength(0);
+    expectInvalidBodyEnvelope(response, 'req-invalid-body-token');
+    expect(database.refreshTokens[0].usedAt).toBeNull();
+  });
+
+  it('should reject arbitrary, nested, and array request bodies with the standard auth error envelope', async () => {
+    const database = createInMemoryRefreshDatabase();
+    seedRefreshSession(database);
+    app = await createAuthRefreshApplication(database, config);
+
+    const cases: Array<{ requestId: string; body: object }> = [
+      {
+        requestId: 'req-invalid-body-field',
+        body: { unexpected: 'field-value' }
+      },
+      {
+        requestId: 'req-invalid-body-nested',
+        body: { nested: { refreshToken: 'parent-refresh-token', cookie: 'refresh_token=parent-refresh-token' } }
+      },
+      {
+        requestId: 'req-invalid-body-array',
+        body: ['parent-refresh-token']
+      }
+    ];
+
+    for (const bodyCase of cases) {
+      const response = await request(app.getHttpServer())
+        .post('/auth/refresh')
+        .set('X-Request-Id', bodyCase.requestId)
+        .set('Cookie', `${config.cookieName}=parent-refresh-token`)
+        .send(bodyCase.body)
+        .expect(400);
+
+      expectInvalidBodyEnvelope(response, bodyCase.requestId);
+    }
+
+    expect(database.refreshTokens[0].usedAt).toBeNull();
+  });
+
+  it('should reject primitive request bodies with the existing parser behavior without leaking token material', async () => {
+    const database = createInMemoryRefreshDatabase();
+    seedRefreshSession(database);
+    app = await createAuthRefreshApplication(database, config);
+
+    const response = await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .set('Content-Type', 'application/json')
+      .set('X-Request-Id', 'req-invalid-body-primitive')
+      .set('Cookie', `${config.cookieName}=parent-refresh-token`)
+      .send('42')
+      .expect(400);
+
+    expectResponseNotToLeakRefreshInput(response);
     expect(database.refreshTokens[0].usedAt).toBeNull();
   });
 
@@ -654,4 +720,27 @@ function readSetCookie(response: { headers: Record<string, string | string[] | u
   }
 
   return header ? [header] : [];
+}
+
+function expectInvalidBodyEnvelope(response: { body: unknown }, requestId: string): void {
+  expect(response.body).toEqual({
+    error: {
+      code: AUTH_REFRESH_INVALID_BODY_CODE,
+      message: AUTH_REFRESH_INVALID_BODY_MESSAGE,
+      requestId
+    }
+  });
+  expectResponseNotToLeakRefreshInput(response);
+}
+
+function expectResponseNotToLeakRefreshInput(response: { body: unknown }): void {
+  const serializedBody = JSON.stringify(response.body);
+
+  expect(serializedBody).not.toContain('parent-refresh-token');
+  expect(serializedBody).not.toContain('refresh_token=parent-refresh-token');
+  expect(serializedBody).not.toContain('rotated-refresh');
+  expect(serializedBody).not.toContain('token-1');
+  expect(serializedBody).not.toContain('session-1');
+  expect(serializedBody).not.toContain('Prisma');
+  expect(serializedBody).not.toContain('database');
 }

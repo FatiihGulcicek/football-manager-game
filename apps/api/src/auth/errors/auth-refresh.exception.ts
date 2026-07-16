@@ -42,7 +42,7 @@ export type AuthRefreshException =
   | AuthRefreshConflictException
   | AuthRefreshReusedException;
 
-function createRefreshErrorBody(code: string, message: string, requestId: string) {
+export function createRefreshErrorBody(code: string, message: string, requestId: string) {
   return {
     error: {
       code,

@@ -40,7 +40,9 @@ Bu plan Sprint 4B ve sonrası auth uygulaması için beklenen test kapsamını t
 | Admin login context | USER rolü ADMIN context ile login olabilir; JWT/body role USER kalır, `LoginAttempt.context=ADMIN` olur ve admin yetkisi oluşmaz. |
 | Login 401 no-cookie | Invalid credential, disabled ve unverified login yanıtlarında `Set-Cookie` bulunmaz. |
 | Refresh success | Yeni access token ve rotated refresh cookie döner. |
-| Refresh empty body | Body boş değilse 400 döner; body/query/header token kabul edilmez. |
+| Refresh empty body | Body boşsa refresh akışı devam eder ve başarılı durumda yeni access token ile rotated refresh cookie döner. |
+| Refresh invalid body envelope | Body içinde `refreshToken`, rastgele alan, nested object veya array varsa 400 `AUTH_REFRESH_INVALID_BODY` standart auth hata zarfı döner. |
+| Refresh primitive body parser behavior | Primitive veya bozuk JSON body mevcut parser davranışıyla 400 döner; token materyali, cookie değeri veya DB detayı response'a yansımaz. |
 | Refresh cookie missing | Cookie yoksa 401 `AUTH_REFRESH_INVALID` döner ve yeni cookie yazılmaz. |
 | Concurrent refresh | Aynı parent token ile iki parallel istekten biri başarılı olur, kısa yarıştaki diğeri `AUTH_REFRESH_CONFLICT` alır. |
 | Refresh DB transaction rollback | Transaction hata verirse eski token used durumda kalmaz ve geçerli child oluşmaz. |
@@ -81,6 +83,7 @@ Bu plan Sprint 4B ve sonrası auth uygulaması için beklenen test kapsamını t
 | Wildcard + credentials reddi | `*` origin ile credentials yapılandırması testte başarısız kabul edilir. |
 | Production cookie attribute assertion | `__Host-refresh_token`, host-only, `Path=/`, Secure, HttpOnly, SameSite=Lax doğrulanır. |
 | Refresh raw-token leakage | Raw refresh token DB, JSON body, audit metadata ve loglarda bulunmaz; yalnız Set-Cookie içinde taşınır. |
+| Refresh invalid body leakage | `AUTH_REFRESH_INVALID_BODY` response'u raw body, refresh token, cookie değeri veya DB detayı içermez. |
 | Development cookie policy | Localhost prefix'siz ve `Secure=false` çalışabilir; production validation bunu production'da reddeder. |
 | XSS taşıyan displayName veya deviceName | Değerler encode edilir, script çalışmaz, loglara raw zararlı içerik yazılmaz. |
 | Yetki yükseltme | Request body ile `role=ADMIN` gönderilse bile rol değişmez. |

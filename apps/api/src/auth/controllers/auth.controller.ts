@@ -1,5 +1,6 @@
-import { BadRequestException, Body, Controller, HttpCode, HttpStatus, Inject, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, HttpCode, HttpStatus, Inject, Post, Req, Res } from '@nestjs/common';
 import { LoginContext } from '@football-manager/database';
+import { randomUUID } from 'crypto';
 import { AUTH_CONFIG, AuthConfig } from '../../config/auth.config';
 import { resolveClientIp } from '../../http/client-ip.util';
 import {
@@ -12,6 +13,7 @@ import { LoginDto, LoginResponseDto } from '../dto/login.dto';
 import { RefreshResponseDto } from '../dto/refresh.dto';
 import { RegisterDto, RegisterResponseDto } from '../dto/register.dto';
 import { AuthRefreshException } from '../errors/auth-refresh.exception';
+import { AuthRefreshInvalidBodyException } from '../errors/auth-refresh-invalid-body.exception';
 import { LoginRequestContext, LoginService } from '../services/login.service';
 import { RefreshRequestContext, RefreshService } from '../services/refresh.service';
 import { RegisterService } from '../services/register.service';
@@ -55,7 +57,7 @@ export class AuthController {
     @Req() request: AuthHttpRequest,
     @Res({ passthrough: true }) response: RefreshCookieResponse
   ): Promise<RefreshResponseDto> {
-    assertEmptyRefreshBody(body);
+    assertEmptyRefreshBody(body, createRequestId(request));
 
     try {
       const result = await this.refreshService.refresh(
@@ -116,7 +118,7 @@ function createRefreshRequestContext(
   };
 }
 
-function assertEmptyRefreshBody(body: unknown): void {
+function assertEmptyRefreshBody(body: unknown, requestId: string): void {
   if (body === undefined || body === null) {
     return;
   }
@@ -125,7 +127,7 @@ function assertEmptyRefreshBody(body: unknown): void {
     return;
   }
 
-  throw new BadRequestException('Refresh request body must be empty');
+  throw new AuthRefreshInvalidBodyException(requestId);
 }
 
 function isAuthRefreshException(error: unknown): error is AuthRefreshException {
@@ -144,6 +146,29 @@ function readHeader(request: AuthHttpRequest, headerName: string): string | unde
   }
 
   return value;
+}
+
+function createRequestId(request: AuthHttpRequest): string {
+  const requestId = readHeader(request, 'x-request-id') ?? randomUUID();
+  const normalizedRequestId = requestId.trim();
+
+  if (!normalizedRequestId || containsControlCharacter(normalizedRequestId)) {
+    return 'invalid';
+  }
+
+  return Array.from(normalizedRequestId).slice(0, 128).join('');
+}
+
+function containsControlCharacter(value: string): boolean {
+  for (const character of value) {
+    const codePoint = character.codePointAt(0);
+
+    if (codePoint !== undefined && ((codePoint >= 1 && codePoint <= 31) || codePoint === 127)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function detectDeviceType(userAgent: string | undefined): string | undefined {

@@ -87,6 +87,7 @@ Sprint 4C.3 tamamlananlar:
 
 - `POST /auth/refresh` endpointi eklendi; request body boş olmalıdır.
 - Refresh token yalnız auth config cookie adından okunur; body, query veya header içinden token kabul edilmez.
+- Controller'a ulaşan body dolu refresh istekleri standart `AUTH_REFRESH_INVALID_BODY` 400 auth hata zarfıyla reddedilir; raw body, token, cookie değeri veya DB detayı response'a yansımaz.
 - Başarılı refresh transaction içinde parent token `usedAt` alır, yeni child refresh token hash olarak saklanır, session `lastSeenAt` güncellenir ve `AUTH_REFRESH_SUCCEEDED` audit log yazılır.
 - Yeni access token `AccessTokenService` ile DB'deki user role ve session id üzerinden üretilir.
 - Yeni refresh token response body'ye girmez; yalnız HttpOnly refresh cookie overwrite edilir.
