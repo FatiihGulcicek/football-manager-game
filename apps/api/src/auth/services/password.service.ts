@@ -1,4 +1,5 @@
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { Inject, Injectable, OnModuleInit, Optional } from '@nestjs/common';
+import { randomBytes } from 'crypto';
 import * as argon2 from 'argon2';
 import { AUTH_CONFIG, authConfig, AuthConfig } from '../../config/auth.config';
 
@@ -10,8 +11,15 @@ export class PasswordValidationError extends Error {
 }
 
 @Injectable()
-export class PasswordService {
+export class PasswordService implements OnModuleInit {
+  private readonly dummyPassword = randomBytes(32).toString('base64url');
+  private dummyPasswordHashPromise?: Promise<string>;
+
   constructor(@Optional() @Inject(AUTH_CONFIG) private readonly config: AuthConfig = authConfig) {}
+
+  async onModuleInit(): Promise<void> {
+    await this.getDummyPasswordHash();
+  }
 
   async hashPassword(password: string): Promise<string> {
     const normalizedPassword = this.validatePassword(password);
@@ -31,7 +39,20 @@ export class PasswordService {
       return false;
     }
 
-    return argon2.verify(hash, normalizedPassword);
+    try {
+      return await argon2.verify(hash, normalizedPassword);
+    } catch {
+      return false;
+    }
+  }
+
+  async verifyAgainstDummy(password: string): Promise<boolean> {
+    return this.verifyPassword(await this.getDummyPasswordHash(), password);
+  }
+
+  getDummyPasswordHash(): Promise<string> {
+    this.dummyPasswordHashPromise ??= this.createDummyPasswordHash();
+    return this.dummyPasswordHashPromise;
   }
 
   needsRehash(hash: string): boolean {
@@ -91,6 +112,15 @@ export class PasswordService {
     }
 
     return normalizedPassword;
+  }
+
+  private createDummyPasswordHash(): Promise<string> {
+    return argon2.hash(this.dummyPassword, {
+      type: argon2.argon2id,
+      memoryCost: this.config.argon2MemoryCost,
+      timeCost: this.config.argon2TimeCost,
+      parallelism: this.config.argon2Parallelism
+    });
   }
 }
 

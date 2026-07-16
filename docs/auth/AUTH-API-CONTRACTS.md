@@ -15,6 +15,7 @@ Bu belge authentication API sözleşmelerini tanımlar. Sprint 4C.2 itibarıyla 
 - Access token kısa ömürlü olduğu için response body içinde dönebilir ve istemci belleğinde tutulur.
 - Her authenticated endpoint JWT doğrulamasından sonra `sid` ile session-active kontrolü yapar.
 - Admin ve normal kullanıcı aynı auth altyapısını kullanır; erişim role guard ile ayrılır.
+- Login `context` alanı yalnız giriş yüzeyini belirtir; yetkilendirme sinyali değildir.
 
 ## JWT beklentileri
 
@@ -33,6 +34,14 @@ Bu belge authentication API sözleşmelerini tanımlar. Sprint 4C.2 itibarıyla 
 - `Access-Control-Allow-Credentials=true` yalnız allowlist originlerde kullanılır.
 - Wildcard origin ve credentials birlikte yasaktır.
 - Development originleri environment üzerinden ayrıca listelenir.
+- CORS runtime hardening ve Origin/Referer kontrolleri Sprint 4F kapsamındadır.
+
+## Client IP ve proxy sözleşmesi
+
+- API `X-Forwarded-For` header'ını elle parse etmez.
+- `TRUST_PROXY_HOPS` veya `TRUST_PROXY_CIDRS` tanımlıysa Express `trust proxy` runtime'da set edilir ve `request.ip` trusted proxy çözümünden sonra kullanılır.
+- Proxy config yoksa socket IP kullanılır; spoofed forwarded header client IP'yi değiştirmez.
+- `LoginAttempt`, `AuditLog` ve `UserSession` aynı normalize edilmiş IP hash değerini kullanır.
 
 ## Ortak hata yapısı
 
@@ -113,6 +122,8 @@ Yeni kullanıcı için transaction içinde `User`, `ManagerProfile`, `EmailVerif
 - `email` trim/lowercase normalize edilir ve maksimum 254 karakterdir.
 - `password` string olmalı, maksimum 128 karakterdir; null byte ve sakıncalı kontrol karakterleri reddedilir.
 - `context` opsiyoneldir; yalnız `WEB` veya `ADMIN` kabul edilir, varsayılan `WEB` olur.
+- `context=ADMIN` kullanıcıya admin rolü vermez ve JWT role claim'ini değiştirmez.
+- ADMIN context yalnız `LoginAttempt`, audit/monitoring metadata'sı ve Sprint 4F risk/rate-limit grupları için kullanılabilir.
 - `role`, `userId`, `sessionId`, `isActive` veya başka client controlled auth alanları kabul edilmez.
 
 Başarılı response:
@@ -133,7 +144,7 @@ Başarılı response:
 }
 ```
 
-Refresh token response body içinde dönmez; yalnız HttpOnly refresh cookie ile taşınır. Başarılı login transaction içinde `UserSession`, ilk `RefreshToken`, `LoginAttempt`, `AuditLog` ve `User.lastLoginAt` yazar.
+Refresh token response body içinde dönmez; yalnız HttpOnly refresh cookie ile taşınır. Service internal sonucu public response DTO ve refresh-cookie payload olarak ayrılır; raw refresh token yalnız cookie yazan controller katmanına açılır. Başarılı login transaction içinde `UserSession`, ilk `RefreshToken`, `LoginAttempt`, `AuditLog` ve `User.lastLoginAt` yazar.
 
 Tüm credential failure durumları aynı dış response ile döner:
 

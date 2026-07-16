@@ -6,6 +6,7 @@ import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AUTH_CONFIG, AuthConfig } from '../../config/auth.config';
 import { PrismaService } from '../../database/prisma.service';
+import { applyTrustProxy } from '../../http/trust-proxy';
 import { AUTH_AUDIT_EVENTS } from '../constants/auth-audit-events';
 import { AccessTokenService } from '../services/access-token.service';
 import { LoginRateLimitService } from '../services/login-rate-limit.service';
@@ -39,6 +40,14 @@ const config: AuthConfig = {
   argon2Parallelism: 1
 };
 
+const productionCookieConfig: AuthConfig = {
+  ...config,
+  cookieName: '__Host-refresh_token',
+  cookieSecure: true,
+  cookieSameSite: 'lax',
+  cookiePath: '/'
+};
+
 describe('AuthController login', () => {
   let app: INestApplication;
   let database: InMemoryLoginDatabase;
@@ -46,61 +55,7 @@ describe('AuthController login', () => {
   beforeEach(async () => {
     database = createInMemoryLoginDatabase();
     seedLoginUsers(database);
-
-    const moduleRef = await Test.createTestingModule({
-      controllers: [AuthController],
-      providers: [
-        LoginService,
-        LoginRateLimitService,
-        SessionService,
-        RefreshTokenService,
-        {
-          provide: AUTH_CONFIG,
-          useValue: config
-        },
-        {
-          provide: PrismaService,
-          useValue: database.prisma
-        },
-        {
-          provide: RegisterService,
-          useValue: {
-            register: vi.fn()
-          }
-        },
-        {
-          provide: PasswordService,
-          useValue: {
-            verifyPassword: vi.fn(async (hash: string, password: string) => {
-              return hash === 'hash:correct-password' && password === 'CorrectPass123';
-            })
-          }
-        },
-        {
-          provide: AccessTokenService,
-          useValue: {
-            signAccessToken: vi.fn(() => 'access-token-for-test')
-          }
-        },
-        {
-          provide: TokenHashService,
-          useValue: {
-            generateOpaqueToken: vi.fn(() => 'opaque-refresh-fixture'),
-            hashToken: vi.fn((value: string) => `hmac-sha256:${sha256(value)}`)
-          }
-        }
-      ]
-    }).compile();
-
-    app = moduleRef.createNestApplication();
-    app.useGlobalPipes(
-      new ValidationPipe({
-        whitelist: true,
-        forbidNonWhitelisted: true,
-        transform: true
-      })
-    );
-    await app.init();
+    app = await createAuthLoginApplication(database, config);
   });
 
   afterEach(async () => {
@@ -131,7 +86,8 @@ describe('AuthController login', () => {
       }
     });
     expect(response.body).not.toHaveProperty('refreshToken');
-    const setCookie = response.headers['set-cookie'] as unknown as string[];
+    expect(response.body).not.toHaveProperty('refreshCookie');
+    const setCookie = readSetCookie(response);
     expect(setCookie[0]).toContain('refresh_token=opaque-refresh-fixture');
     expect(setCookie[0]).toContain('HttpOnly');
     expect(setCookie[0]).toContain('SameSite=Lax');
@@ -184,6 +140,7 @@ describe('AuthController login', () => {
         .send(payload)
         .expect(401);
       bodies.push(response.body);
+      expect(readSetCookie(response)).toHaveLength(0);
     }
 
     expect(new Set(bodies.map((body) => JSON.stringify(body))).size).toBe(1);
@@ -201,7 +158,7 @@ describe('AuthController login', () => {
   });
 
   it('should store ADMIN context without accepting client supplied role', async () => {
-    await request(app.getHttpServer())
+    const response = await request(app.getHttpServer())
       .post('/auth/login')
       .send({
         email: 'user@example.invalid',
@@ -210,6 +167,7 @@ describe('AuthController login', () => {
       })
       .expect(200);
 
+    expect(response.body.user.role).toBe(UserRole.USER);
     expect(database.loginAttempts[0]).toMatchObject({
       success: true,
       context: LoginContext.ADMIN
@@ -223,6 +181,67 @@ describe('AuthController login', () => {
         role: 'ADMIN'
       })
       .expect(400);
+  });
+
+  it('should set the production __Host refresh cookie attributes without a Domain attribute', async () => {
+    await app.close();
+    database = createInMemoryLoginDatabase();
+    seedLoginUsers(database);
+    app = await createAuthLoginApplication(database, productionCookieConfig);
+
+    const response = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({
+        email: 'user@example.invalid',
+        password: 'CorrectPass123'
+      })
+      .expect(200);
+    const setCookie = readSetCookie(response);
+
+    expect(setCookie[0]).toContain('__Host-refresh_token=opaque-refresh-fixture');
+    expect(setCookie[0]).toContain('HttpOnly');
+    expect(setCookie[0]).toContain('Secure');
+    expect(setCookie[0]).toContain('SameSite=Lax');
+    expect(setCookie[0]).toContain('Path=/');
+    expect(setCookie[0]).not.toContain('Domain=');
+  });
+
+  it('should ignore spoofed X-Forwarded-For when trust proxy is disabled', async () => {
+    await request(app.getHttpServer())
+      .post('/auth/login')
+      .set('X-Forwarded-For', '198.51.100.10')
+      .send({
+        email: 'user@example.invalid',
+        password: 'CorrectPass123'
+      })
+      .expect(200);
+
+    const spoofedIpHash = `hmac-sha256:${sha256('ip:198.51.100.10')}`;
+    expect(database.userSessions[0].ipHash).not.toBe(spoofedIpHash);
+    expect(database.loginAttempts[0].ipHash).toBe(database.userSessions[0].ipHash);
+  });
+
+  it('should use Express request.ip after a trusted proxy hop resolves the client IP', async () => {
+    await app.close();
+    database = createInMemoryLoginDatabase();
+    seedLoginUsers(database);
+    app = await createAuthLoginApplication(database, {
+      ...config,
+      trustProxyHops: 1
+    });
+
+    await request(app.getHttpServer())
+      .post('/auth/login')
+      .set('X-Forwarded-For', '198.51.100.20')
+      .send({
+        email: 'user@example.invalid',
+        password: 'CorrectPass123'
+      })
+      .expect(200);
+
+    const trustedIpHash = `hmac-sha256:${sha256('ip:198.51.100.20')}`;
+    expect(database.userSessions[0].ipHash).toBe(trustedIpHash);
+    expect(database.loginAttempts[0].ipHash).toBe(trustedIpHash);
   });
 
   it('should not write raw email, IP, user-agent, password, or raw tokens to audit metadata', async () => {
@@ -418,4 +437,77 @@ function sha256(value: string): string {
 
 function windowsChromeUserAgent(): string {
   return 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0 Safari/537.36';
+}
+
+async function createAuthLoginApplication(
+  database: InMemoryLoginDatabase,
+  authConfig: AuthConfig
+): Promise<INestApplication> {
+  const moduleRef = await Test.createTestingModule({
+    controllers: [AuthController],
+    providers: [
+      LoginService,
+      LoginRateLimitService,
+      SessionService,
+      RefreshTokenService,
+      {
+        provide: AUTH_CONFIG,
+        useValue: authConfig
+      },
+      {
+        provide: PrismaService,
+        useValue: database.prisma
+      },
+      {
+        provide: RegisterService,
+        useValue: {
+          register: vi.fn()
+        }
+      },
+      {
+        provide: PasswordService,
+        useValue: {
+          verifyPassword: vi.fn(async (hash: string, password: string) => {
+            return hash === 'hash:correct-password' && password === 'CorrectPass123';
+          }),
+          verifyAgainstDummy: vi.fn(async () => false)
+        }
+      },
+      {
+        provide: AccessTokenService,
+        useValue: {
+          signAccessToken: vi.fn(() => 'access-token-for-test')
+        }
+      },
+      {
+        provide: TokenHashService,
+        useValue: {
+          generateOpaqueToken: vi.fn(() => 'opaque-refresh-fixture'),
+          hashToken: vi.fn((value: string) => `hmac-sha256:${sha256(value)}`)
+        }
+      }
+    ]
+  }).compile();
+  const nestApp = moduleRef.createNestApplication();
+  applyTrustProxy(nestApp, authConfig);
+  nestApp.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true
+    })
+  );
+  await nestApp.init();
+
+  return nestApp;
+}
+
+function readSetCookie(response: { headers: Record<string, string | string[] | undefined> }): string[] {
+  const header = response.headers['set-cookie'];
+
+  if (Array.isArray(header)) {
+    return header;
+  }
+
+  return header ? [header] : [];
 }

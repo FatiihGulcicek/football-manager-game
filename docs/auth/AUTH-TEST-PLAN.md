@@ -8,6 +8,10 @@ Bu plan Sprint 4B ve sonrası auth uygulaması için beklenen test kapsamını t
 | --- | --- |
 | Şifre hashleme | Aynı parola için salt nedeniyle farklı hash üretir ve açık metin saklamaz. |
 | Şifre doğrulama | Doğru parola true, yanlış parola false döner. |
+| Invalid Argon2 hash doğrulama | Verify exception sızdırmadan `false` döner; parola veya hash loglanmaz. |
+| Dummy Argon2 hash config parity | Dummy hash `argon2id` algoritmasıyla üretilir ve memory/time/parallelism değerleri auth config ile eşleşir. |
+| Dummy hash cache | Dummy hash process içinde cache edilir; request başına tekrar hash üretilmez. |
+| Dummy verify primitive | Missing-user yolu dummy hash ile, wrong-password yolu gerçek hash ile aynı PasswordService verify primitive'ini kullanır. |
 | Unicode NFC parola | Görsel olarak eşdeğer Unicode parola normalize edilerek tutarlı doğrulanır. |
 | Null byte ve kontrol karakterleri | Parola ve DTO alanları validation ile reddedilir. |
 | Maksimum parola uzunluğu | Argon2 çağrısından önce reddedilir. |
@@ -33,7 +37,8 @@ Bu plan Sprint 4B ve sonrası auth uygulaması için beklenen test kapsamını t
 | Duplicate email | 202 generic response döner; account existence açıklanmaz ve duplicate kayıt DB bütünlüğünü bozmaz. |
 | Login success | Access token, production/dev policy'ye uygun refresh cookie, session ve login attempt success oluşur. |
 | Login invalid credentials | 401 ve genel hata döner; user not found/password wrong ayrımı yapılmaz. |
-| Admin login context | Admin login attempt `ADMIN` context ile kaydedilir ve admin rate limit uygulanır. |
+| Admin login context | USER rolü ADMIN context ile login olabilir; JWT/body role USER kalır, `LoginAttempt.context=ADMIN` olur ve admin yetkisi oluşmaz. |
+| Login 401 no-cookie | Invalid credential, disabled ve unverified login yanıtlarında `Set-Cookie` bulunmaz. |
 | Refresh success | Yeni access token ve rotated refresh cookie döner. |
 | Concurrent refresh | Aynı parent token ile iki parallel istekten biri başarılı olur, kısa yarıştaki diğeri `AUTH_REFRESH_CONFLICT` alır. |
 | Refresh DB transaction rollback | Transaction hata verirse eski token used durumda kalmaz ve geçerli child oluşmaz. |
@@ -53,6 +58,8 @@ Bu plan Sprint 4B ve sonrası auth uygulaması için beklenen test kapsamını t
 | --- | --- |
 | X-Forwarded-For spoofing | Güvenilmeyen bağlantıdan gelen spoofed header yok sayılır, socket IP kullanılır. |
 | Trusted proxy chain doğrulaması | Yalnız configured trusted hop/CIDR üzerinden gelen forwarded header normalize client IP üretir. |
+| Trusted proxy runtime wiring | `TRUST_PROXY_HOPS` hop count olarak, `TRUST_PROXY_CIDRS` CIDR allowlist olarak Express `trust proxy` ayarına bağlanır; ikisi birlikte reddedilir. |
+| Login IP hash consistency | `LoginAttempt` ve `UserSession` aynı normalize edilmiş `ipHash` değerini yazar. |
 | SQL injection | DTO ve Prisma parametreleme ile injection etkisiz kalır. |
 | NoSQL benzeri payload | Object/array gibi beklenmeyen payload validation ile reddedilir. |
 | Oversized payload | Büyük body ve uzun inputlar güvenli 400/413 alır. |
@@ -94,3 +101,5 @@ Bu plan Sprint 4B ve sonrası auth uygulaması için beklenen test kapsamını t
 - Auth testleri watch modunda çalışmaz; CI `vitest run` kullanır.
 - Security testleri gerçek secret kullanmaz.
 - Test fixture parolaları açıkça test değeri olarak kalır; production-like secret üretilmez.
+- Wall-clock timing testleri ana CI'ı kıracak şekilde yazılmaz; gerekiyorsa ayrı manual/security benchmark notu olarak çalıştırılır.
+- Gerçek Redis rate limit, CORS Origin/Referer hardening ve audit retention testleri Sprint 4F kapsamındadır.

@@ -71,6 +71,18 @@ Sprint 4C.2 tamamlananlar:
 - Rate limit için `LoginRateLimitService` sınırı hazırlandı; Redis destekli gerçek limit Sprint 4F hardening kapsamındadır.
 - Unit, HTTP integration ve production cookie config testleri eklendi.
 
+Sprint 4C.2.2 güvenlik düzeltmeleri:
+
+- Sabit düşük maliyetli fake password hash kaldırıldı.
+- `PasswordService` process içinde bir kez dummy Argon2id hash üretir ve cache eder; dummy hash gerçek config `argon2MemoryCost`, `argon2TimeCost` ve `argon2Parallelism` değerlerini kullanır.
+- Missing-user yolu `verifyAgainstDummy`, wrong-password yolu gerçek user hash'iyle `verifyPassword` kullanır; iki yol aynı Argon2 verify primitive'inden geçer.
+- Invalid Argon2 hash doğrulaması dışarı exception sızdırmadan `false` döner.
+- `TRUST_PROXY_HOPS` ve `TRUST_PROXY_CIDRS` Express `trust proxy` runtime ayarına bağlandı; ikisi birlikte config validation ile reddedilir.
+- Login client IP çözümü controller'dan çıkarıldı; `request.ip` yalnız trusted proxy sonrası, aksi halde socket IP kullanılır ve IPv4-mapped IPv6 normalize edilir.
+- 401 login response'larında `Set-Cookie` olmaması, production `__Host-refresh_token` cookie attribute'ları, XFF spoofing ve trusted proxy davranışı testlerle sabitlendi.
+- `context=ADMIN` yetkilendirme sinyali değildir; JWT role DB'den gelir, context yalnız login attempt/audit/risk metadata'sıdır.
+- Login service internal sonucu public response DTO ve refresh-cookie payload olarak ayrıldı; raw refresh token response body'ye yayılmaz.
+
 ## Sprint 4D - Refresh rotation, logout ve session yönetimi
 
 | Alan | Detay |
@@ -96,8 +108,8 @@ Sprint 4C.2 tamamlananlar:
 | Alan | Detay |
 | --- | --- |
 | Amaç | Redis rate limit, bounded in-memory fallback, login attempts, audit log, progressive delay, CSRF/CORS ve security header sertleştirmelerini tamamlamak. |
-| Değişecek ana dosyalar | Rate limit module, audit service, trusted proxy/IP resolver, API bootstrap, guards/interceptors, tests. |
-| Test şartları | Brute-force, Redis down fallback, trusted proxy spoofing, rate limited response, audit metadata sanitization, CSRF Origin check, CORS allowlist testleri. |
+| Değişecek ana dosyalar | Rate limit module, audit service, guards/interceptors, security headers/CORS config, tests. |
+| Test şartları | Brute-force, Redis down fallback, rate limited response, audit metadata sanitization, CSRF Origin check, CORS allowlist testleri. |
 | Kabul kriterleri | Auth endpointleri katmanlı limit altındadır; Redis down olduğunda tam fail-open/fail-closed yapılmaz; audit log hassas veri içermez; requestId response ve loglarda izlenir. |
 | Riskler | Çok instance ortamında in-memory fallback'in sınırlı koruma sağlaması, proxy config hatasıyla IP bazlı limitlerin atlatılması. |
 

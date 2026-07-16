@@ -24,9 +24,12 @@ export type LoginRequestContext = {
   operatingSystem?: string;
 };
 
-export type LoginResult = LoginResponseDto & {
-  refreshToken: string;
-  refreshTokenExpiresAt: Date;
+export type LoginResult = {
+  response: LoginResponseDto;
+  refreshCookie: {
+    value: string;
+    expiresAt: Date;
+  };
 };
 
 type LoginUserRecord = {
@@ -60,8 +63,6 @@ type NormalizedLoginInput = {
 type LoginFailureReason = 'USER_NOT_FOUND' | 'INVALID_PASSWORD' | 'USER_DISABLED' | 'EMAIL_NOT_VERIFIED';
 
 const LOGIN_DTO_FIELDS = new Set(['email', 'password', 'context']);
-const FAKE_PASSWORD_HASH =
-  '$argon2id$v=19$m=1024,t=2,p=1$TZcYWksG92/osE+64r9w3Q$tMM0AwY8T9uCUmGD/5WdOzPrzD6z4OYMC7FJwVeBXPA';
 
 @Injectable()
 export class LoginService {
@@ -92,10 +93,9 @@ export class LoginService {
     });
 
     const user = await this.findUser(input.email);
-    const passwordMatches = await this.passwordService.verifyPassword(
-      user?.passwordHash ?? FAKE_PASSWORD_HASH,
-      input.password
-    );
+    const passwordMatches = user
+      ? await this.passwordService.verifyPassword(user.passwordHash, input.password)
+      : await this.passwordService.verifyAgainstDummy(input.password);
     const failureReason = this.getFailureReason(user, passwordMatches);
 
     if (failureReason) {
@@ -220,16 +220,20 @@ export class LoginService {
       });
 
       result = {
-        accessToken,
-        tokenType: 'Bearer',
-        expiresIn: this.config.accessTokenTtlSeconds,
-        refreshToken: refreshToken.token,
-        refreshTokenExpiresAt,
-        user: {
-          id: user.id,
-          email: user.email,
-          role: user.role,
-          managerProfile: user.managerProfile
+        response: {
+          accessToken,
+          tokenType: 'Bearer',
+          expiresIn: this.config.accessTokenTtlSeconds,
+          user: {
+            id: user.id,
+            email: user.email,
+            role: user.role,
+            managerProfile: user.managerProfile
+          }
+        },
+        refreshCookie: {
+          value: refreshToken.token,
+          expiresAt: refreshTokenExpiresAt
         }
       };
     });

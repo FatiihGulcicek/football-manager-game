@@ -64,32 +64,34 @@ describe('LoginService', () => {
     const { service } = createService();
 
     await expect(service.login(createLoginDto(), requestContext)).resolves.toMatchObject({
-      accessToken: 'access-token',
-      tokenType: 'Bearer',
-      expiresIn: 900,
-      refreshToken: 'refresh-token',
-      user: {
-        id: 'user-1',
-        email: 'user@example.invalid',
-        role: 'USER',
-        managerProfile: {
-          displayName: 'Manager'
+      response: {
+        accessToken: 'access-token',
+        tokenType: 'Bearer',
+        expiresIn: 900,
+        user: {
+          id: 'user-1',
+          email: 'user@example.invalid',
+          role: 'USER',
+          managerProfile: {
+            displayName: 'Manager'
+          }
         }
+      },
+      refreshCookie: {
+        value: 'refresh-token'
       }
     });
   });
 
-  it('should verify a fake password hash when the user is not found', async () => {
+  it('should verify against the cached dummy password hash when the user is not found', async () => {
     const { passwordService, prisma, service } = createService();
     prisma.user.findUnique.mockResolvedValue(null);
 
     await expect(service.login(createLoginDto(), requestContext)).rejects.toBeInstanceOf(
       UnauthorizedException
     );
-    expect(passwordService.verifyPassword).toHaveBeenCalledWith(
-      expect.stringContaining('$argon2id$'),
-      'TestOnlyPass123'
-    );
+    expect(passwordService.verifyAgainstDummy).toHaveBeenCalledWith('TestOnlyPass123');
+    expect(passwordService.verifyPassword).not.toHaveBeenCalled();
   });
 
   it('should reject a wrong password with the generic response', async () => {
@@ -97,6 +99,8 @@ describe('LoginService', () => {
     passwordService.verifyPassword.mockResolvedValue(false);
 
     await expectInvalidCredentials(service.login(createLoginDto(), requestContext));
+    expect(passwordService.verifyPassword).toHaveBeenCalledWith('password-hash', 'TestOnlyPass123');
+    expect(passwordService.verifyAgainstDummy).not.toHaveBeenCalled();
   });
 
   it('should reject a disabled user with the generic response', async () => {
@@ -253,6 +257,27 @@ describe('LoginService', () => {
     });
   });
 
+  it('should treat ADMIN context as metadata without elevating a USER role', async () => {
+    const { accessTokenService, transaction, service } = createService();
+
+    await service.login(createLoginDto({ context: LoginContext.ADMIN }), {
+      ...requestContext,
+      context: LoginContext.ADMIN
+    });
+
+    expect(accessTokenService.signAccessToken).toHaveBeenCalledWith({
+      userId: 'user-1',
+      role: 'USER',
+      sessionId: 'session-1'
+    });
+    expect(transaction.loginAttempt.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        success: true,
+        context: LoginContext.ADMIN
+      })
+    });
+  });
+
   it('should update lastLoginAt after successful login', async () => {
     const { transaction, service } = createService();
 
@@ -312,7 +337,8 @@ function createService() {
     )
   };
   const passwordService = {
-    verifyPassword: vi.fn(async () => true)
+    verifyPassword: vi.fn(async () => true),
+    verifyAgainstDummy: vi.fn(async () => false)
   };
   const sessionService = {
     createSession: vi.fn(async () => ({ id: 'session-1' }))

@@ -49,4 +49,14 @@ describe('auth config schema', () => {
       })
     ).toThrow('AUTH_COOKIE_DOMAIN must be empty for __Host- cookies in production');
   });
+
+  it('should reject using trust proxy hops and CIDRs together', () => {
+    expect(() =>
+      loadAuthConfig({
+        NODE_ENV: 'development',
+        TRUST_PROXY_HOPS: '1',
+        TRUST_PROXY_CIDRS: 'loopback'
+      })
+    ).toThrow('Use either TRUST_PROXY_HOPS or TRUST_PROXY_CIDRS, not both');
+  });
 });

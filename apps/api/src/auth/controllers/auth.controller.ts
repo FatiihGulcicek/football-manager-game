@@ -1,6 +1,7 @@
 import { Body, Controller, HttpCode, HttpStatus, Inject, Post, Req, Res } from '@nestjs/common';
 import { LoginContext } from '@football-manager/database';
 import { AUTH_CONFIG, AuthConfig } from '../../config/auth.config';
+import { resolveClientIp } from '../../http/client-ip.util';
 import { LoginDto, LoginResponseDto } from '../dto/login.dto';
 import { RegisterDto, RegisterResponseDto } from '../dto/register.dto';
 import { LoginRequestContext, LoginService } from '../services/login.service';
@@ -27,9 +28,12 @@ export class AuthController {
     @Req() request: AuthHttpRequest,
     @Res({ passthrough: true }) response: CookieResponse
   ): Promise<LoginResponseDto> {
-    const loginResult = await this.loginService.login(dto, createLoginRequestContext(request, dto.context));
+    const loginResult = await this.loginService.login(
+      dto,
+      createLoginRequestContext(request, dto.context, this.config)
+    );
 
-    response.cookie(this.config.cookieName, loginResult.refreshToken, {
+    response.cookie(this.config.cookieName, loginResult.refreshCookie.value, {
       httpOnly: true,
       secure: this.config.cookieSecure,
       sameSite: this.config.cookieSameSite,
@@ -38,12 +42,7 @@ export class AuthController {
       ...(this.config.cookieDomain ? { domain: this.config.cookieDomain } : {})
     });
 
-    return {
-      accessToken: loginResult.accessToken,
-      tokenType: loginResult.tokenType,
-      expiresIn: loginResult.expiresIn,
-      user: loginResult.user
-    };
+    return loginResult.response;
   }
 }
 
@@ -70,7 +69,8 @@ type RefreshCookieOptions = {
 
 function createLoginRequestContext(
   request: AuthHttpRequest,
-  context?: LoginContext
+  context: LoginContext | undefined,
+  config: AuthConfig
 ): LoginRequestContext {
   const userAgent = readHeader(request, 'user-agent');
   const operatingSystem = detectOperatingSystem(userAgent);
@@ -79,7 +79,7 @@ function createLoginRequestContext(
 
   return {
     requestId: readHeader(request, 'x-request-id'),
-    clientIp: normalizeRemoteAddress(request.socket?.remoteAddress ?? request.ip ?? 'unknown'),
+    clientIp: resolveClientIp(request, config),
     userAgent,
     context: context ?? LoginContext.WEB,
     deviceName: createDeviceName(operatingSystem, browser),
@@ -97,16 +97,6 @@ function readHeader(request: AuthHttpRequest, headerName: string): string | unde
   }
 
   return value;
-}
-
-function normalizeRemoteAddress(remoteAddress: string): string {
-  const trimmedAddress = remoteAddress.trim();
-
-  if (trimmedAddress.startsWith('::ffff:')) {
-    return trimmedAddress.slice(7);
-  }
-
-  return trimmedAddress || 'unknown';
 }
 
 function detectDeviceType(userAgent: string | undefined): string | undefined {
