@@ -13,6 +13,7 @@ import {
   AUTH_REFRESH_INVALID_BODY_MESSAGE
 } from '../errors/auth-refresh-invalid-body.exception';
 import { LoginService } from '../services/login.service';
+import { LogoutService } from '../services/logout.service';
 import { RefreshRateLimitService } from '../services/refresh-rate-limit.service';
 import { RefreshService } from '../services/refresh.service';
 import { RefreshTokenService } from '../services/refresh-token.service';
@@ -641,6 +642,12 @@ async function createAuthRefreshApplication(
         provide: LoginService,
         useValue: {
           login: vi.fn()
+        }
+      },
+      {
+        provide: LogoutService,
+        useValue: {
+          logout: vi.fn()
         }
       },
       {

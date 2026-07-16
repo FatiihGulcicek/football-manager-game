@@ -1,6 +1,6 @@
 # Authentication API Contracts
 
-Bu belge authentication API sözleşmelerini tanımlar. Sprint 4C.3 itibarıyla `POST /auth/register`, `POST /auth/login` ve `POST /auth/refresh` uygulanmıştır; diğer endpointler sonraki alt sprintler için sözleşme durumundadır.
+Bu belge authentication API sözleşmelerini tanımlar. Sprint 4C.4 itibarıyla `POST /auth/register`, `POST /auth/login`, `POST /auth/refresh` ve `POST /auth/logout` uygulanmıştır; diğer endpointler sonraki alt sprintler için sözleşme durumundadır.
 
 ## Ortak kurallar
 
@@ -64,7 +64,7 @@ Hata mesajları kullanıcı varlığı, e-posta doğrulama durumu veya parola ya
 | `POST /auth/register` | Public | `{ email, password, displayName, locale?, timezone? }` | `{ status: "accepted", message }` | 202, 400, 429 | `AUTH_VALIDATION_FAILED`, `AUTH_RATE_LIMITED` | Register limiter boundary; Redis limit Sprint 4F | Yeni kullanıcı için `AUTH_REGISTERED` | Her zaman generic 202; e-posta zaten kayıtlıysa API açıklamaz ve kullanıcı verisi dönmez. |
 | `POST /auth/login` | Public | `{ email, password, context? }` | `{ accessToken, tokenType, expiresIn, user }` + refresh cookie | 200, 400, 401, 429 | `AUTH_INVALID_CREDENTIALS`, `AUTH_RATE_LIMITED` | Login limiter boundary; Redis limit Sprint 4F | `AUTH_LOGIN_SUCCEEDED` veya `AUTH_LOGIN_FAILED` | Aynı credential tekrar yeni session oluşturur; rate limit korur. |
 | `POST /auth/refresh` | Refresh cookie | Empty body | `{ accessToken, tokenType, expiresIn }` + rotated refresh cookie | 200, 400, 401, 409, 429 | `AUTH_REFRESH_INVALID_BODY`, `AUTH_REFRESH_INVALID`, `AUTH_REFRESH_CONFLICT`, `AUTH_REFRESH_REUSED`, `AUTH_RATE_LIMITED` | Refresh limiter boundary; Redis limit Sprint 4F | `AUTH_REFRESH_SUCCEEDED`, `AUTH_REFRESH_FAILED`, replay varsa `AUTH_REFRESH_REUSED` | Token tek kullanımlıdır; kısa parallel yarışta 409 conflict döner, gerçek replay session revoke eder. |
-| `POST /auth/logout` | Access token veya refresh cookie | Empty body | Empty | 204, 401 | `AUTH_UNAUTHORIZED` | User + IP | `AUTH_LOGOUT` | Idempotent; zaten çıkılmışsa 204 dönebilir. |
+| `POST /auth/logout` | Optional refresh cookie | Empty body | Empty | 204, 400 | `AUTH_LOGOUT_INVALID_BODY` | Hardcoded limiter yok; Sprint 4F boundary | Eşleşen aktif session için `AUTH_LOGOUT` | Idempotent; cookie yok, uydurma cookie veya zaten çıkılmış session için 204 döner. |
 | `POST /auth/logout-all` | Access token | Empty body | Empty | 204, 401 | `AUTH_UNAUTHORIZED` | User + IP | `AUTH_LOGOUT_ALL` | Idempotent; active session yoksa 204. |
 | `POST /auth/verify-email` | Public | `{ token }` | `{ status: "verified" }` | 200, 400, 410, 429 | `AUTH_VERIFICATION_INVALID`, `AUTH_VERIFICATION_EXPIRED`, `AUTH_RATE_LIMITED` | Token hash + IP | `AUTH_EMAIL_VERIFIED`, failed | Kullanılmış token tekrar geldiğinde güvenli genel sonuç dönebilir. |
 | `POST /auth/resend-verification` | Public veya authenticated | `{ email }` | `{ status: "accepted" }` | 202, 400, 429 | `AUTH_RATE_LIMITED`, `AUTH_VALIDATION_FAILED` | IP + emailHash | `AUTH_EMAIL_VERIFICATION_RESENT` | Her zaman accepted; hesap varlığı açıklanmaz; önceki unused tokenlar revoke edilir. |
@@ -221,6 +221,37 @@ Grace window dışındaki replay `AUTH_REFRESH_REUSED` ile 401 döner; ilgili se
 - Sürekli tekrar durumunda login ekranına yönlendirilir.
 - Grace window dışındaki eski token kullanımı `AUTH_REFRESH_INVALID` veya reuse detection ile session revoke sonucuna gider.
 
+## Uygulanan logout sözleşmesi
+
+`POST /auth/logout` request body kabul etmez. Refresh token yalnız auth config ile belirlenen cookie adından okunur:
+
+- Development varsayılanı: `refresh_token`.
+- Production: `__Host-refresh_token`.
+
+Body, query, authorization header veya özel header içinden refresh token kabul edilmez. Cookie yoksa DB lookup yapılmadan refresh cookie clear edilir ve 204 döner. Cookie uydurma veya token bulunamıyorsa dışarıya ayrıntı verilmez, cookie clear edilir ve 204 döner.
+
+Body dolu olduğunda standart auth hata zarfı:
+
+```json
+{
+  "error": {
+    "code": "AUTH_LOGOUT_INVALID_BODY",
+    "message": "Logout isteğinin gövdesi boş olmalıdır.",
+    "requestId": "req_..."
+  }
+}
+```
+
+Başarılı veya idempotent response:
+
+- HTTP status: 204 No Content.
+- Response body: empty.
+- Refresh cookie her normal logout çağrısında aynı cookie attribute'larıyla temizlenir.
+
+Eşleşen aktif session bulunduğunda current `UserSession` `revokedAt` alır, `revokeReason="user_logout"` olur, aynı session'a bağlı aktif refresh tokenlar revoke edilir ve session cache invalidate edilir. Başka sessionlar etkilenmez. Logout akışı `LoginAttempt` yazmaz. Audit metadata allowlist `context`, `reason`, `sessionId` ile sınırlıdır; raw token, raw cookie, authorization header, raw IP veya user-agent audit/log içine yazılmaz.
+
+Audit yazımı başarısız olursa session revoke sonucu geri alınmaz; istemci normal logout sonucunu alabilir. Session/refresh revoke transaction'ı başarısız olursa yarım revoke başarı gibi raporlanmaz.
+
 ## DTO şekilleri
 
 ### PublicUser
@@ -263,6 +294,7 @@ Raw IP ve tam user-agent response içinde dönmez.
 | `AUTH_UNAUTHORIZED` | Access token eksik, geçersiz, süresi dolmuş veya session-active kontrolünden geçememiş. |
 | `AUTH_FORBIDDEN` | Kullanıcı authenticated ve session active ancak role veya policy yetersiz. |
 | `AUTH_SESSION_REVOKED` | Session iptal edilmiş veya geçersiz. |
+| `AUTH_LOGOUT_INVALID_BODY` | Logout isteği boş body dışında payload içerdiği için reddedildi. |
 | `AUTH_REFRESH_INVALID_BODY` | Refresh isteği boş body dışında payload içerdiği için reddedildi. |
 | `AUTH_REFRESH_INVALID` | Refresh cookie yok, hash eşleşmedi, süresi doldu veya revoked. |
 | `AUTH_REFRESH_CONFLICT` | Kısa parallel refresh yarışında ikinci istek kontrollü reddedildi. |

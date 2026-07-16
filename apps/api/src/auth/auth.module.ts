@@ -5,6 +5,7 @@ import { AuthController } from './controllers/auth.controller';
 import { AccessTokenService } from './services/access-token.service';
 import { LoginRateLimitService } from './services/login-rate-limit.service';
 import { LoginService } from './services/login.service';
+import { LogoutService } from './services/logout.service';
 import { PasswordService } from './services/password.service';
 import { RefreshRateLimitService } from './services/refresh-rate-limit.service';
 import { RefreshService } from './services/refresh.service';
@@ -29,6 +30,7 @@ import { TokenHashService } from './services/token-hash.service';
     RefreshTokenService,
     RefreshRateLimitService,
     RefreshService,
+    LogoutService,
     LoginRateLimitService,
     LoginService,
     RegisterRateLimitService,
@@ -42,6 +44,7 @@ import { TokenHashService } from './services/token-hash.service';
     RefreshTokenService,
     RefreshRateLimitService,
     RefreshService,
+    LogoutService,
     LoginRateLimitService,
     LoginService,
     RegisterRateLimitService,

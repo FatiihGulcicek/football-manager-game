@@ -12,6 +12,7 @@ import { RegisterRateLimitService } from '../services/register-rate-limit.servic
 import { RegisterService } from '../services/register.service';
 import { TokenHashService } from '../services/token-hash.service';
 import { LoginService } from '../services/login.service';
+import { LogoutService } from '../services/logout.service';
 import { RefreshService } from '../services/refresh.service';
 import { AuthController } from './auth.controller';
 
@@ -63,6 +64,12 @@ describe('AuthController register', () => {
           provide: RefreshService,
           useValue: {
             refresh: vi.fn()
+          }
+        },
+        {
+          provide: LogoutService,
+          useValue: {
+            logout: vi.fn()
           }
         },
         {

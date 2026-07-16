@@ -11,6 +11,7 @@ import { AUTH_AUDIT_EVENTS } from '../constants/auth-audit-events';
 import { AccessTokenService } from '../services/access-token.service';
 import { LoginRateLimitService } from '../services/login-rate-limit.service';
 import { LoginService } from '../services/login.service';
+import { LogoutService } from '../services/logout.service';
 import { PasswordService } from '../services/password.service';
 import { RefreshTokenService } from '../services/refresh-token.service';
 import { RefreshService } from '../services/refresh.service';
@@ -455,6 +456,12 @@ async function createAuthLoginApplication(
         provide: RefreshService,
         useValue: {
           refresh: vi.fn()
+        }
+      },
+      {
+        provide: LogoutService,
+        useValue: {
+          logout: vi.fn()
         }
       },
       {

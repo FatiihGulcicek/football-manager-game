@@ -93,6 +93,23 @@ describe('SessionService', () => {
     expect(cache.delete).toHaveBeenCalledWith('session-1');
   });
 
+  it('should not invalidate cache when session revoke transaction fails', async () => {
+    const { prisma } = createPrismaMock();
+    prisma.$transaction.mockRejectedValue(new Error('refresh token revoke failed'));
+    const cache: SessionCache = {
+      get: vi.fn(),
+      set: vi.fn(),
+      delete: vi.fn()
+    };
+    const service = new SessionService(prisma as unknown as PrismaService, cache);
+
+    await expect(service.revokeSession('session-1', 'user_logout')).rejects.toThrow(
+      'refresh token revoke failed'
+    );
+
+    expect(cache.delete).not.toHaveBeenCalled();
+  });
+
   it('should revoke all user sessions and invalidate each cache key', async () => {
     const { prisma } = createPrismaMock();
     prisma.userSession.findMany.mockResolvedValue([{ id: 'session-1' }, { id: 'session-2' }]);
