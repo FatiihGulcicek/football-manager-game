@@ -130,6 +130,43 @@ $refreshResponse.Headers["Set-Cookie"]
 
 An immediate second request with the old cookie may return `AUTH_REFRESH_CONFLICT`; replay outside the grace window revokes the session.
 
+Authenticated session management uses the access token and keeps refresh tokens in cookies only:
+
+```powershell
+$accessToken = ($refreshResponse.Content | ConvertFrom-Json).accessToken
+
+$sessionsResponse = Invoke-RestMethod -Method Get -Uri "$baseUrl/auth/sessions" -Headers @{
+  Authorization = "Bearer $accessToken"
+}
+
+$sessionsResponse.sessions | Select-Object id, deviceName, isCurrent, lastSeenAt, expiresAt
+```
+
+Revoke a different device session by using an id returned from `/auth/sessions`. This example skips the current session:
+
+```powershell
+$targetSessionId = ($sessionsResponse.sessions | Where-Object { -not $_.isCurrent } | Select-Object -First 1).id
+
+if ($targetSessionId) {
+  Invoke-WebRequest -Method Delete -Uri "$baseUrl/auth/sessions/$targetSessionId" -Headers @{
+    Authorization = "Bearer $accessToken"
+  }
+}
+```
+
+Logout all devices revokes every active session for the authenticated user, clears the refresh cookie, and returns 204:
+
+```powershell
+$latestCookieHeader = ($refreshResponse.Headers["Set-Cookie"] -split ";")[0]
+$logoutAllResponse = Invoke-WebRequest -Method Post -Uri "$baseUrl/auth/logout-all" -Headers @{
+  Authorization = "Bearer $accessToken"
+  Cookie = $latestCookieHeader
+}
+
+$logoutAllResponse.StatusCode
+$logoutAllResponse.Headers["Set-Cookie"]
+```
+
 Logout closes only the current session represented by the refresh cookie, clears the HttpOnly cookie, and returns an empty 204 response. Do not send the refresh token in JSON, query params, or headers:
 
 ```powershell
