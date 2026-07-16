@@ -16,6 +16,7 @@
     "paths": {
       "@shared/*": ["packages/shared/src/*"],
       "@types/*": ["packages/types/src/*"],
+      "@football-manager/database": ["packages/database/dist/index.d.ts"],
       "@game-engine/*": ["packages/game-engine/src/*"]
     }
   }

@@ -14,12 +14,20 @@
     "format": "turbo run format",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
-    "db:generate": "pnpm --filter api prisma generate",
-    "db:migrate": "pnpm --filter api prisma migrate dev",
-    "db:seed": "pnpm --filter api prisma db seed",
+    "db:generate": "pnpm --filter @football-manager/database db:generate",
+    "db:migrate": "pnpm --filter @football-manager/database db:migrate",
+    "db:deploy": "pnpm --filter @football-manager/database db:deploy",
+    "db:studio": "pnpm --filter @football-manager/database db:studio",
+    "db:format": "pnpm --filter @football-manager/database db:format",
+    "db:validate": "pnpm --filter @football-manager/database db:validate",
     "clean": "rimraf node_modules .turbo dist",
-    "docker:up": "docker-compose up --build",
-    "docker:down": "docker-compose down"
+    "docker:up": "docker compose --env-file .env -f infrastructure/docker-compose.yml up -d --build",
+    "docker:down": "docker compose --env-file .env -f infrastructure/docker-compose.yml down",
+    "docker:logs": "docker compose --env-file .env -f infrastructure/docker-compose.yml logs",
+    "docker:ps": "docker compose --env-file .env -f infrastructure/docker-compose.yml ps"
+  },
+  "prisma": {
+    "schema": "packages/database/prisma/schema.prisma"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

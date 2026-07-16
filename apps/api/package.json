@@ -12,10 +12,11 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@football-manager/database": "workspace:*",
     "@nestjs/common": "^10.3.0",
     "@nestjs/core": "^10.3.0",
     "@nestjs/platform-express": "^10.3.0",
-    "@prisma/client": "^5.20.0",
+    "ioredis": "^5.4.1",
     "reflect-metadata": "^0.1.13",
     "rxjs": "^7.8.0"
   },

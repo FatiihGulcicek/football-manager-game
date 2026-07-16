@@ -1,0 +1,56 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+  SUPER_ADMIN
+}
+
+model User {
+  id              String          @id @default(uuid())
+  email           String          @unique
+  passwordHash    String
+  role            UserRole        @default(USER)
+  isActive        Boolean         @default(true)
+  emailVerifiedAt DateTime?
+  lastLoginAt     DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  managerProfile  ManagerProfile?
+  club            Club?
+}
+
+model ManagerProfile {
+  id          String   @id @default(uuid())
+  userId      String   @unique
+  displayName String
+  level       Int      @default(1)
+  experience  Int      @default(0)
+  locale      String   @default("tr-TR")
+  timezone    String   @default("Europe/Istanbul")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Club {
+  id              String   @id @default(uuid())
+  ownerId         String   @unique
+  name            String
+  shortName       String
+  slug            String   @unique
+  balance         Decimal  @default(0) @db.Decimal(14, 2)
+  premiumCurrency Int      @default(0)
+  reputation      Int      @default(1)
+  foundedAt       DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  owner           User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+}
