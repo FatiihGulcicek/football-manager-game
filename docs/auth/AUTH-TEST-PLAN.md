@@ -21,6 +21,12 @@ Bu plan Sprint 4B ve sonrası auth uygulaması için beklenen test kapsamını t
 | JWT header | Header `alg=ES256` ve `kid` içerir. |
 | Session oluşturma | Her login için yeni `UserSession` ve `tokenFamilyId` üretilir. |
 | Session-active cache invalidation | Revoke sonrası ilgili cache key temizlenir. |
+| Access token guard missing header | Authorization header yoksa 401 `AUTH_UNAUTHORIZED` standart hata zarfı döner. |
+| Access token guard invalid format | Bearer formatı hatalıysa raw token detayı sızmadan 401 döner. |
+| Access token guard invalid/expired/unknown kid | JWT doğrulama detayları dışarı verilmeden aynı `AUTH_UNAUTHORIZED` zarfı döner. |
+| Access token guard session-active | Revoked, expired veya disabled-user session 401 alır. |
+| Access token guard subject/session mismatch | JWT `sub` DB session `userId` ile eşleşmezse 401 döner. |
+| Access token guard role mismatch | JWT role DB user role ile uyumsuzsa eski token reddedilir. |
 | Refresh rotation | Kullanılmış refresh token `usedAt` alır ve child token oluşturulur. |
 | Reuse detection | Grace window dışındaki kullanılmış token tekrar gelirse session revoke edilir. |
 | Expired token | Süresi dolmuş token reddedilir. |
@@ -60,11 +66,21 @@ Bu plan Sprint 4B ve sonrası auth uygulaması için beklenen test kapsamını t
 | Logout LoginAttempt izolasyonu | Logout success, missing cookie ve invalid cookie durumları `LoginAttempt` tablosuna yazılmaz. |
 | Logout | Current session ve bağlı refresh tokenlar revoke edilir, cookie temizlenir, access token hemen reddedilir. |
 | Logout all devices | Kullanıcının tüm sessionları revoke edilir ve eski access tokenlar session-active kontrolünde reddedilir. |
+| Logout-all invalid body | Body doluysa 400 `AUTH_LOGOUT_ALL_INVALID_BODY` standart auth hata zarfı döner ve raw body sızmaz. |
+| Logout-all isolation | Authenticated user dışındaki kullanıcıların sessionları ve refresh tokenları etkilenmez. |
+| Logout-all audit failure | Audit yazımı başarısız olsa bile revoke sonucu geri alınmaz. |
+| Logout-all transaction rollback | Refresh token revoke fail olursa yarım revoke başarı gibi raporlanmaz. |
 | Role change sonrası eski access token reddi | Role değiştiğinde tüm sessionlar revoke edilir; eski token 401 alır. |
 | Email verification | Geçerli token `emailVerifiedAt` set eder; yeni token üretimi önceki unused tokenları revoke eder. |
 | Password reset | Yeni parola set edilir, reset token kullanılır, sessionlar revoke edilir. |
 | Session listing | Kullanıcı yalnız kendi session özetlerini görür. |
-| Session ownership IDOR | Başka kullanıcının session kaydı silinemez; 404/403 güvenli yanıt döner. |
+| Session listing current-first | Current session `isCurrent=true` ile ilk sırada, diğerleri `lastSeenAt` descending döner. |
+| Session listing safe fields | `tokenFamilyId`, `ipHash`, `userAgentHash`, refresh tokenlar, raw IP, raw user-agent ve `userId` dönmez. |
+| Session revoke other device | Kullanıcı kendisine ait başka cihaz sessionını 204 ile revoke eder; current cookie korunur. |
+| Session revoke current device | Current session revoke edilirse refresh cookie clear edilir ve eski access token sonraki istekte 401 alır. |
+| Session revoke invalid body | Body doluysa 400 `AUTH_SESSION_REVOKE_INVALID_BODY` standart auth hata zarfı döner. |
+| Session revoke idempotency | Kullanıcıya ait zaten revoked hedef için 204 kabul edilir; başka kullanıcı veya yok session için 404 kalır. |
+| Session ownership IDOR | Başka kullanıcının session kaydı silinemez; 404 güvenli yanıt döner. |
 
 ## Security testler
 
@@ -95,6 +111,8 @@ Bu plan Sprint 4B ve sonrası auth uygulaması için beklenen test kapsamını t
 | Refresh invalid body leakage | `AUTH_REFRESH_INVALID_BODY` response'u raw body, refresh token, cookie değeri veya DB detayı içermez. |
 | Logout raw-token leakage | Logout response, audit metadata ve loglar raw refresh token, cookie değeri, access token, authorization header, raw IP ve user-agent içermez. |
 | Logout production clear-cookie attributes | `__Host-refresh_token`, host-only, `Path=/`, Secure, HttpOnly, SameSite=Lax ve geçmiş expiry doğrulanır. |
+| Session management leakage | Session list/revoke/logout-all response ve audit metadata raw token, cookie, authorization header, raw IP, user-agent ve DB detayı içermez. |
+| Session management IDOR | User A, User B sessionını listeleyemez veya silemez; silme denemesi 404 ile existence gizler. |
 | Development cookie policy | Localhost prefix'siz ve `Secure=false` çalışabilir; production validation bunu production'da reddeder. |
 | XSS taşıyan displayName veya deviceName | Değerler encode edilir, script çalışmaz, loglara raw zararlı içerik yazılmaz. |
 | Yetki yükseltme | Request body ile `role=ADMIN` gönderilse bile rol değişmez. |
@@ -109,6 +127,7 @@ Bu plan Sprint 4B ve sonrası auth uygulaması için beklenen test kapsamını t
 | Safari/PWA yaklaşımı | SameSite, cookie ve PWA lifecycle davranışı doğrulanır. |
 | Cookie davranışı | HttpOnly cookie JS ile okunamaz; logout sonrası expire edilir. |
 | Çoklu cihaz | Her cihaz ayrı session olarak listelenir ve tek tek revoke edilir. |
+| Session management manuel akış | User A iki session, User B bir session ile list/revoke/IDOR/current revoke/logout-all akışı doğrulanır. |
 | Saat farkı | UTC expiry ve clock skew toleransı kullanıcıyı gereksiz kırmaz; server expiry esas alınır. |
 | Redis kapalı | Fallback limiter devreye girer; health degraded ve internal metric görünür olur. |
 | PostgreSQL kapalı | Auth endpointleri kontrollü hata döner; health degraded döner. |

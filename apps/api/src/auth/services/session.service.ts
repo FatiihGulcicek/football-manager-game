@@ -32,6 +32,24 @@ export type ActiveSession = {
   expiresAt: Date;
 };
 
+export type ListedUserSession = {
+  id: string;
+  deviceName: string | null;
+  deviceType: string | null;
+  browser: string | null;
+  operatingSystem: string | null;
+  countryCode: string | null;
+  city: string | null;
+  lastSeenAt: Date;
+  createdAt: Date;
+  expiresAt: Date;
+};
+
+export type RevokeOwnedSessionResult = {
+  sessionId: string;
+  wasActive: boolean;
+};
+
 export class SessionInactiveError extends Error {
   constructor(message = 'SESSION_INACTIVE') {
     super(message);
@@ -128,6 +146,45 @@ export class SessionService {
     await this.writeCachedState(sessionId, true);
   }
 
+  async listUserSessions(userId: string, now = new Date()): Promise<ListedUserSession[]> {
+    return this.prisma.userSession.findMany({
+      where: {
+        userId,
+        revokedAt: null,
+        expiresAt: {
+          gt: now
+        }
+      },
+      orderBy: {
+        lastSeenAt: 'desc'
+      },
+      select: {
+        id: true,
+        deviceName: true,
+        deviceType: true,
+        browser: true,
+        operatingSystem: true,
+        countryCode: true,
+        city: true,
+        lastSeenAt: true,
+        createdAt: true,
+        expiresAt: true
+      }
+    });
+  }
+
+  async countActiveSessions(userId: string, now = new Date()): Promise<number> {
+    return this.prisma.userSession.count({
+      where: {
+        userId,
+        revokedAt: null,
+        expiresAt: {
+          gt: now
+        }
+      }
+    });
+  }
+
   async revokeSession(sessionId: string, revokeReason: string, revokedAt = new Date()): Promise<void> {
     await this.prisma.$transaction([
       this.prisma.userSession.updateMany({
@@ -154,7 +211,66 @@ export class SessionService {
     await this.invalidateCache(sessionId);
   }
 
-  async revokeAllUserSessions(userId: string, revokeReason: string, revokedAt = new Date()): Promise<void> {
+  async revokeOwnedSession(
+    userId: string,
+    sessionId: string,
+    revokeReason: string,
+    revokedAt = new Date()
+  ): Promise<RevokeOwnedSessionResult | null> {
+    const session = await this.prisma.userSession.findFirst({
+      where: {
+        id: sessionId,
+        userId
+      },
+      select: {
+        id: true,
+        revokedAt: true
+      }
+    });
+
+    if (!session) {
+      return null;
+    }
+
+    if (session.revokedAt !== null) {
+      return {
+        sessionId: session.id,
+        wasActive: false
+      };
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.userSession.updateMany({
+        where: {
+          id: sessionId,
+          userId,
+          revokedAt: null
+        },
+        data: {
+          revokedAt,
+          revokeReason
+        }
+      }),
+      this.prisma.refreshToken.updateMany({
+        where: {
+          sessionId,
+          revokedAt: null
+        },
+        data: {
+          revokedAt
+        }
+      })
+    ]);
+
+    await this.invalidateCache(sessionId);
+
+    return {
+      sessionId: session.id,
+      wasActive: true
+    };
+  }
+
+  async revokeAllUserSessions(userId: string, revokeReason: string, revokedAt = new Date()): Promise<number> {
     const sessions = await this.prisma.userSession.findMany({
       where: {
         userId,
@@ -167,7 +283,7 @@ export class SessionService {
     const sessionIds = sessions.map((session) => session.id);
 
     if (sessionIds.length === 0) {
-      return;
+      return 0;
     }
 
     await this.prisma.$transaction([
@@ -196,6 +312,8 @@ export class SessionService {
     ]);
 
     await Promise.all(sessionIds.map((sessionId) => this.invalidateCache(sessionId)));
+
+    return sessionIds.length;
   }
 
   async updateLastSeen(sessionId: string, lastSeenAt = new Date()): Promise<void> {

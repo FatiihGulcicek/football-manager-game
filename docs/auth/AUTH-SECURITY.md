@@ -177,6 +177,21 @@ Concurrent refresh için MVP kararı:
 - Raw refresh token, cookie değeri, access token, authorization header, raw IP ve user-agent response, audit metadata veya loglara yazılmaz.
 - Audit write hatası session revoke güvenlik sonucunu tersine çevirmez.
 
+## Session management endpoints
+
+- Sprint 4C.5 uygulamasında `POST /auth/logout-all`, `GET /auth/sessions` ve `DELETE /auth/sessions/:sessionId` access token guard arkasındadır.
+- Guard `Authorization: Bearer` access tokenını doğrular, `sid` üzerinden session-active kontrolü yapar, DB session `userId` ile JWT `sub` değerini eşleştirir ve user aktif değilse 401 döner.
+- Client tarafından gönderilen `userId`, `role` veya `sessionId` yetkilendirme sinyali olarak kabul edilmez.
+- `POST /auth/logout-all` authenticated kullanıcının tüm aktif sessionlarını ve bağlı aktif refresh tokenlarını transaction sınırında revoke eder, cache kayıtlarını invalidate eder ve refresh cookie'yi clear eder.
+- `GET /auth/sessions` yalnız authenticated kullanıcının aktif session özetlerini döner; raw IP, raw user-agent, `ipHash`, `userAgentHash`, `tokenFamilyId`, refresh token kayıtları ve `userId` response'a girmez.
+- `DELETE /auth/sessions/:sessionId` ownership kontrolünü `id + userId` filtresiyle yapar. Başka kullanıcı sessionı veya olmayan session için 404 `AUTH_SESSION_NOT_FOUND` döner.
+- Current session revoke bu sprintte desteklenir; current session silinirse refresh cookie clear edilir ve kalan access token sonraki istekte session-active kontrolünde 401 alır.
+- Başka cihaz sessionı silindiğinde current refresh cookie temizlenmez.
+- Owned ama zaten revoked hedef session için endpoint idempotent 204 dönebilir; başka kullanıcıya ait hedeflerde existence açıklanmaz.
+- `AUTH_LOGOUT_ALL` audit metadata allowlist'i `sessionCount` ve `reason`; `AUTH_SESSION_REVOKED` allowlist'i `targetSessionId`, `isCurrent` ve `reason` alanlarıyla sınırlıdır.
+- Raw token, cookie değeri, authorization header, raw IP, user-agent ve DB hata detayları response veya audit metadata içine yazılmaz.
+- Audit write hatası session revoke güvenlik sonucunu tersine çevirmez.
+
 ## Rate limit ve brute-force koruması
 
 Katmanlı yaklaşım:

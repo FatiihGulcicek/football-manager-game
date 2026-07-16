@@ -1,6 +1,6 @@
 # Authentication API Contracts
 
-Bu belge authentication API sözleşmelerini tanımlar. Sprint 4C.4 itibarıyla `POST /auth/register`, `POST /auth/login`, `POST /auth/refresh` ve `POST /auth/logout` uygulanmıştır; diğer endpointler sonraki alt sprintler için sözleşme durumundadır.
+Bu belge authentication API sözleşmelerini tanımlar. Sprint 4C.5 itibarıyla `POST /auth/register`, `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `POST /auth/logout-all`, `GET /auth/sessions` ve `DELETE /auth/sessions/:sessionId` uygulanmıştır; diğer endpointler sonraki alt sprintler için sözleşme durumundadır.
 
 ## Ortak kurallar
 
@@ -65,15 +65,15 @@ Hata mesajları kullanıcı varlığı, e-posta doğrulama durumu veya parola ya
 | `POST /auth/login` | Public | `{ email, password, context? }` | `{ accessToken, tokenType, expiresIn, user }` + refresh cookie | 200, 400, 401, 429 | `AUTH_INVALID_CREDENTIALS`, `AUTH_RATE_LIMITED` | Login limiter boundary; Redis limit Sprint 4F | `AUTH_LOGIN_SUCCEEDED` veya `AUTH_LOGIN_FAILED` | Aynı credential tekrar yeni session oluşturur; rate limit korur. |
 | `POST /auth/refresh` | Refresh cookie | Empty body | `{ accessToken, tokenType, expiresIn }` + rotated refresh cookie | 200, 400, 401, 409, 429 | `AUTH_REFRESH_INVALID_BODY`, `AUTH_REFRESH_INVALID`, `AUTH_REFRESH_CONFLICT`, `AUTH_REFRESH_REUSED`, `AUTH_RATE_LIMITED` | Refresh limiter boundary; Redis limit Sprint 4F | `AUTH_REFRESH_SUCCEEDED`, `AUTH_REFRESH_FAILED`, replay varsa `AUTH_REFRESH_REUSED` | Token tek kullanımlıdır; kısa parallel yarışta 409 conflict döner, gerçek replay session revoke eder. |
 | `POST /auth/logout` | Optional refresh cookie | Empty body | Empty | 204, 400 | `AUTH_LOGOUT_INVALID_BODY` | Hardcoded limiter yok; Sprint 4F boundary | Eşleşen aktif session için `AUTH_LOGOUT` | Idempotent; cookie yok, uydurma cookie veya zaten çıkılmış session için 204 döner. |
-| `POST /auth/logout-all` | Access token | Empty body | Empty | 204, 401 | `AUTH_UNAUTHORIZED` | User + IP | `AUTH_LOGOUT_ALL` | Idempotent; active session yoksa 204. |
+| `POST /auth/logout-all` | Access token + active session | Empty body | Empty | 204, 400, 401 | `AUTH_LOGOUT_ALL_INVALID_BODY`, `AUTH_UNAUTHORIZED` | User + IP | `AUTH_LOGOUT_ALL` | Idempotent; active session yoksa 204. |
 | `POST /auth/verify-email` | Public | `{ token }` | `{ status: "verified" }` | 200, 400, 410, 429 | `AUTH_VERIFICATION_INVALID`, `AUTH_VERIFICATION_EXPIRED`, `AUTH_RATE_LIMITED` | Token hash + IP | `AUTH_EMAIL_VERIFIED`, failed | Kullanılmış token tekrar geldiğinde güvenli genel sonuç dönebilir. |
 | `POST /auth/resend-verification` | Public veya authenticated | `{ email }` | `{ status: "accepted" }` | 202, 400, 429 | `AUTH_RATE_LIMITED`, `AUTH_VALIDATION_FAILED` | IP + emailHash | `AUTH_EMAIL_VERIFICATION_RESENT` | Her zaman accepted; hesap varlığı açıklanmaz; önceki unused tokenlar revoke edilir. |
 | `POST /auth/forgot-password` | Public | `{ email }` | `{ status: "accepted" }` | 202, 400, 429 | `AUTH_RATE_LIMITED`, `AUTH_VALIDATION_FAILED` | IP + emailHash | `AUTH_PASSWORD_RESET_REQUESTED` | Her zaman accepted; hesap varlığı açıklanmaz; önceki unused reset tokenlar revoke edilir. |
 | `POST /auth/reset-password` | Public | `{ token, newPassword }` | `{ status: "password_reset" }` | 200, 400, 410, 429 | `AUTH_RESET_INVALID`, `AUTH_RESET_EXPIRED`, `AUTH_PASSWORD_POLICY_FAILED` | Token hash + IP | `AUTH_PASSWORD_RESET_COMPLETED`, failed | Başarılı kullanım tek seferliktir; tekrar kullanım invalid kabul edilir. |
 | `POST /auth/change-password` | Access token + active session | `{ currentPassword, newPassword }` | `{ status: "password_changed" }` | 200, 400, 401, 429 | `AUTH_INVALID_CREDENTIALS`, `AUTH_PASSWORD_POLICY_FAILED`, `AUTH_RATE_LIMITED` | User + IP | `AUTH_PASSWORD_CHANGED` | Aynı istek tekrar current password değiştiği için başarısız olabilir. |
 | `GET /auth/me` | Access token + active session | None | `{ user: PublicUser, session: CurrentSession }` | 200, 401 | `AUTH_UNAUTHORIZED`, `AUTH_SESSION_REVOKED` | Normal API limit | Opsiyonel `AUTH_ME_READ` metric | Read-only. |
-| `GET /auth/sessions` | Access token + active session | None | `{ sessions: SessionSummary[] }` | 200, 401 | `AUTH_UNAUTHORIZED` | User limit | `AUTH_SESSIONS_LISTED` opsiyonel | Read-only. |
-| `DELETE /auth/sessions/:sessionId` | Access token + active session | Path `sessionId` | Empty | 204, 401, 404 | `AUTH_UNAUTHORIZED`, `AUTH_SESSION_NOT_FOUND` | User limit | `AUTH_SESSION_REVOKED` | Idempotent; kullanıcıya ait olmayan veya yok session için 404. |
+| `GET /auth/sessions` | Access token + active session | None | `{ sessions: SessionSummary[] }` | 200, 401 | `AUTH_UNAUTHORIZED` | User limit | Yok | Read-only. |
+| `DELETE /auth/sessions/:sessionId` | Access token + active session | Path `sessionId`, empty body | Empty | 204, 400, 401, 404 | `AUTH_SESSION_REVOKE_INVALID_BODY`, `AUTH_UNAUTHORIZED`, `AUTH_SESSION_NOT_FOUND` | User limit | `AUTH_SESSION_REVOKED` | Kullanıcıya ait olmayan veya yok session için 404; kullanıcıya ait zaten revoked hedef için 204 kabul edilir. |
 
 ## Uygulanan register sözleşmesi
 
@@ -252,6 +252,82 @@ Eşleşen aktif session bulunduğunda current `UserSession` `revokedAt` alır, `
 
 Audit yazımı başarısız olursa session revoke sonucu geri alınmaz; istemci normal logout sonucunu alabilir. Session/refresh revoke transaction'ı başarısız olursa yarım revoke başarı gibi raporlanmaz.
 
+## Uygulanan session management sözleşmesi
+
+`POST /auth/logout-all`, `GET /auth/sessions` ve `DELETE /auth/sessions/:sessionId` access token gerektirir. Guard, `Authorization: Bearer <accessToken>` header'ını doğrular, JWT `sid` claim'i ile session-active kontrolü yapar ve session `userId` değerinin JWT `sub` ile eşleşmesini zorunlu tutar. Client tarafından gönderilen `userId`, `role` veya `sessionId` kabul edilmez.
+
+Unauthorized response:
+
+```json
+{
+  "error": {
+    "code": "AUTH_UNAUTHORIZED",
+    "message": "Oturum geçersiz veya süresi dolmuş.",
+    "requestId": "req_..."
+  }
+}
+```
+
+### POST /auth/logout-all
+
+Request body boş olmalıdır. Body doluysa:
+
+```json
+{
+  "error": {
+    "code": "AUTH_LOGOUT_ALL_INVALID_BODY",
+    "message": "Logout-all isteğinin gövdesi boş olmalıdır.",
+    "requestId": "req_..."
+  }
+}
+```
+
+Başarılı durumda authenticated kullanıcının tüm aktif session kayıtları ve bağlı aktif refresh tokenları revoke edilir, session cache kayıtları invalidate edilir, refresh cookie temizlenir ve 204 No Content döner. İşlem idempotenttir. `AUTH_LOGOUT_ALL` audit metadata allowlist'i yalnız `sessionCount` ve `reason` alanlarını içerir.
+
+### GET /auth/sessions
+
+Yalnız authenticated kullanıcının aktif session özetleri döner. Current session ilk sıradadır, diğer sessionlar `lastSeenAt` descending sıralanır.
+
+```json
+{
+  "sessions": [
+    {
+      "id": "uuid",
+      "deviceName": "Windows Chrome",
+      "deviceType": "DESKTOP",
+      "browser": "Chrome",
+      "operatingSystem": "Windows",
+      "countryCode": "TR",
+      "city": "Samsun",
+      "lastSeenAt": "2026-07-16T10:00:00.000Z",
+      "createdAt": "2026-07-01T10:00:00.000Z",
+      "expiresAt": "2026-08-15T10:00:00.000Z",
+      "isCurrent": true
+    }
+  ]
+}
+```
+
+Response içinde `tokenFamilyId`, `ipHash`, `userAgentHash`, `revokeReason`, refresh token kayıtları, raw IP, raw user-agent, `userId` veya internal audit metadata dönmez.
+
+### DELETE /auth/sessions/:sessionId
+
+`sessionId` yalnız URL parametresinden alınır. Request body boş olmalıdır. Body doluysa:
+
+```json
+{
+  "error": {
+    "code": "AUTH_SESSION_REVOKE_INVALID_BODY",
+    "message": "Session revoke isteğinin gövdesi boş olmalıdır.",
+    "requestId": "req_..."
+  }
+}
+```
+
+Hedef session authenticated kullanıcıya ait değilse veya yoksa 404 `AUTH_SESSION_NOT_FOUND` döner; böylece IDOR ve session enumeration riski azaltılır. Hedef session kullanıcıya aitse session ve bağlı refresh token family transaction içinde revoke edilir, cache invalidate edilir ve 204 döner. Bu sprintte current session revoke işlemine izin verilir; hedef current session ise refresh cookie temizlenir ve sonraki authenticated istek session-active kontrolünde 401 alır. Başka bir cihaz kapatıldığında current refresh cookie temizlenmez.
+
+`AUTH_SESSION_REVOKED` audit metadata allowlist'i yalnız `targetSessionId`, `isCurrent` ve `reason` alanlarını içerir.
+
 ## DTO şekilleri
 
 ### PublicUser
@@ -286,6 +362,24 @@ Audit yazımı başarısız olursa session revoke sonucu geri alınmaz; istemci 
 
 Raw IP ve tam user-agent response içinde dönmez.
 
+### SessionSummary
+
+```json
+{
+  "id": "uuid",
+  "deviceName": "Windows Chrome",
+  "deviceType": "DESKTOP",
+  "browser": "Chrome",
+  "operatingSystem": "Windows",
+  "countryCode": "TR",
+  "city": "Samsun",
+  "lastSeenAt": "2026-07-16T10:00:00.000Z",
+  "createdAt": "2026-07-01T10:00:00.000Z",
+  "expiresAt": "2026-08-15T10:00:00.000Z",
+  "isCurrent": true
+}
+```
+
 ## Hata kodları
 
 | Kod | Anlam |
@@ -295,6 +389,9 @@ Raw IP ve tam user-agent response içinde dönmez.
 | `AUTH_FORBIDDEN` | Kullanıcı authenticated ve session active ancak role veya policy yetersiz. |
 | `AUTH_SESSION_REVOKED` | Session iptal edilmiş veya geçersiz. |
 | `AUTH_LOGOUT_INVALID_BODY` | Logout isteği boş body dışında payload içerdiği için reddedildi. |
+| `AUTH_LOGOUT_ALL_INVALID_BODY` | Logout-all isteği boş body dışında payload içerdiği için reddedildi. |
+| `AUTH_SESSION_REVOKE_INVALID_BODY` | Session revoke isteği boş body dışında payload içerdiği için reddedildi. |
+| `AUTH_SESSION_NOT_FOUND` | Session yok, kullanıcıya ait değil veya existence gizlenmelidir. |
 | `AUTH_REFRESH_INVALID_BODY` | Refresh isteği boş body dışında payload içerdiği için reddedildi. |
 | `AUTH_REFRESH_INVALID` | Refresh cookie yok, hash eşleşmedi, süresi doldu veya revoked. |
 | `AUTH_REFRESH_CONFLICT` | Kısa parallel refresh yarışında ikinci istek kontrollü reddedildi. |

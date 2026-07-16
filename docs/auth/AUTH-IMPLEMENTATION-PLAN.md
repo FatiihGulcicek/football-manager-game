@@ -33,7 +33,7 @@ Sprint 4B config kapsamı:
 
 ## Sprint 4C - Password, JWT, session, register ve login
 
-Durum: Kısmen tamamlandı. Sprint 4C.1 kapsamında `POST /auth/register`, Sprint 4C.2 kapsamında `POST /auth/login`, Sprint 4C.3 kapsamında `POST /auth/refresh`, Sprint 4C.4 kapsamında `POST /auth/logout` uygulandı; logout-all ve session listeleme sonraki alt sprintlerde kalır.
+Durum: Tamamlandı. Sprint 4C.1 kapsamında `POST /auth/register`, Sprint 4C.2 kapsamında `POST /auth/login`, Sprint 4C.3 kapsamında `POST /auth/refresh`, Sprint 4C.4 kapsamında `POST /auth/logout`, Sprint 4C.5 kapsamında `POST /auth/logout-all`, `GET /auth/sessions` ve `DELETE /auth/sessions/:sessionId` uygulandı.
 
 | Alan | Detay |
 | --- | --- |
@@ -111,15 +111,28 @@ Sprint 4C.4 tamamlananlar:
 - Body dolu logout istekleri `AUTH_LOGOUT_INVALID_BODY` 400 auth hata zarfıyla reddedilir.
 - Audit yazma hatası session revoke sonucunu tersine çevirmez; revoke transaction hatası başarı gibi raporlanmaz.
 
-## Sprint 4D - Refresh rotation, logout ve session yönetimi
+Sprint 4C.5 tamamlananlar:
+
+- Access token guard eklendi; `Authorization: Bearer` token doğrulanır, `sid` ile session-active kontrolü yapılır, DB session `userId` ile JWT `sub` eşleştirilir ve disabled/revoked/expired sessionlar 401 `AUTH_UNAUTHORIZED` alır.
+- `CurrentUser` request context'i `userId`, `role` ve `sessionId` ile sınırlıdır; client tarafından gönderilen auth alanları kullanılmaz.
+- `POST /auth/logout-all` endpointi eklendi; authenticated kullanıcının tüm aktif sessionları ve bağlı aktif refresh tokenları revoke edilir, cache invalidate edilir, refresh cookie clear edilir ve 204 döner.
+- Logout-all request body boş olmak zorundadır; body doluysa `AUTH_LOGOUT_ALL_INVALID_BODY` 400 zarfı döner.
+- `GET /auth/sessions` endpointi yalnız current user's active session özetlerini döner; current session ilk sıradadır, raw IP/user-agent, hashler, token family ve `userId` dönmez.
+- `DELETE /auth/sessions/:sessionId` endpointi eklendi; ownership kontrolü `id + userId` ile yapılır, başka kullanıcı veya yok session için 404 `AUTH_SESSION_NOT_FOUND` döner.
+- Current session revoke desteklenir; current hedef silindiğinde refresh cookie clear edilir ve sonraki authenticated istek session-active kontrolünde 401 olur.
+- Session revoke request body boş olmak zorundadır; body doluysa `AUTH_SESSION_REVOKE_INVALID_BODY` 400 zarfı döner.
+- `AUTH_LOGOUT_ALL` audit metadata allowlist `sessionCount`, `reason`; `AUTH_SESSION_REVOKED` allowlist `targetSessionId`, `isCurrent`, `reason` ile sınırlıdır.
+- Audit yazma hatası revoke sonucunu tersine çevirmez; session/refresh revoke transaction sınırında tutulur.
+
+## Sprint 4D - E-posta doğrulama hazırlığı ve session sonrası auth akışları
 
 | Alan | Detay |
 | --- | --- |
-| Amaç | Logout, logout-all, session listesi ve session revoke endpointlerini uygulamak; refresh sonrası session-active davranışını authenticated endpointlerle bağlamak. |
-| Değişecek ana dosyalar | Auth session service, auth controller, guards, tests. |
-| Test şartları | Logout, logout-all, revoked session, başka kullanıcının sessionını silme ve access token revoke sonrası reddi testleri. |
-| Kabul kriterleri | Logout current session ve refresh family'yi iptal eder; logout-all tüm sessionları revoke eder; access token revoke sonrası hemen reddedilir. |
-| Riskler | Cookie temizleme davranışının browserlar arasında farklılaşması, session-active cache invalidation hataları. |
+| Amaç | E-posta doğrulama ve şifre sıfırlama sprintlerine geçmeden önce authenticated session davranışının manuel ve review bulgularıyla sertleştirilmesi. |
+| Değişecek ana dosyalar | Auth docs, gerekirse küçük auth service/controller düzeltmeleri, regression testler. |
+| Test şartları | Session management regression, old access token rejection, cookie clear edge cases ve review bulguları. |
+| Kabul kriterleri | Register/login/refresh/logout/session endpointleri birbiriyle tutarlı kalır; yeni email/reset geliştirmeleri bu guard ve session modelinin üstüne kurulabilir. |
+| Riskler | Review sonrası küçük güvenlik düzeltmelerinin kapsam büyütmesi, manuel test fixture'larında gerçek token veya session id sızıntısı. |
 
 ## Sprint 4E - E-posta doğrulama ve şifre sıfırlama
 
