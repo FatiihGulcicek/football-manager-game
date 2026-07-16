@@ -2,7 +2,7 @@
 
 Bu klasör authentication sisteminin teknik tasarımını ve uygulama ilerleme notlarını tutar.
 
-Sprint 4C.1 itibarıyla yalnız `POST /auth/register` uygulanmıştır. Login, refresh, logout, session yönetimi, e-posta gönderimi ve UI sonraki alt sprintlerin kapsamındadır.
+Sprint 4C.2 itibarıyla `POST /auth/register` ve `POST /auth/login` uygulanmıştır. Refresh, logout, session listeleme, e-posta doğrulama gönderimi ve UI sonraki alt sprintlerin kapsamındadır.
 
 ## Belge haritası
 
@@ -27,6 +27,7 @@ Sprint 4C.1 itibarıyla yalnız `POST /auth/register` uygulanmıştır. Login, r
 - Her authenticated request `sid` üzerinden session-active kontrolünden geçecektir.
 - Production refresh cookie `__Host-refresh_token` adıyla host-only, `Path=/`, `Secure`, `HttpOnly`, `SameSite=Lax` olarak taşınacaktır.
 - Register akışı hesap varlığını açıklamayan 202 generic response döndürecektir.
+- Login akışı credential failure nedenlerini dışarıya açıklamayan `AUTH_INVALID_CREDENTIALS` response döndürecektir.
 - Redis kesintisinde bounded in-memory fallback limiter kullanılacak, health degraded olacaktır.
 - Admin ve oyuncu girişi aynı auth altyapısını kullanacak, fark role guard ile uygulanacaktır.
 
@@ -60,3 +61,22 @@ Invoke-WebRequest -Method Post -Uri "$baseUrl/auth/register" -ContentType "appli
 ```
 
 İlk iki isteğin aynı generic 202 response döndürmesi, geçersiz e-postanın 400 dönmesi beklenir.
+
+## Login manuel test örneği
+
+Email verification endpointi henüz olmadığı için local manuel login testinde test kullanıcısının `emailVerifiedAt` alanı kontrollü development DB güncellemesiyle ayarlanmalıdır.
+
+```powershell
+$baseUrl = "http://localhost:4000"
+$payload = @{
+  email = "manual-register@example.invalid"
+  password = "TestOnlyPass123"
+  context = "WEB"
+} | ConvertTo-Json
+
+$response = Invoke-WebRequest -Method Post -Uri "$baseUrl/auth/login" -ContentType "application/json" -Body $payload
+$response.Content
+$response.Headers["Set-Cookie"]
+```
+
+Başarılı login response body içinde access token, header içinde HttpOnly refresh cookie döndürür.

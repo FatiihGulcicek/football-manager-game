@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { AuthConfig } from '../../config/auth.config';
 import { PasswordService, PasswordValidationError } from './password.service';
 
@@ -90,6 +90,36 @@ describe('PasswordService', () => {
     await expect(service.verifyPassword(hash, 'WrongPass123')).resolves.toBe(false);
   });
 
+  it('should return false for an invalid Argon2 hash without leaking the exception', async () => {
+    const service = new PasswordService(baseConfig);
+
+    await expect(service.verifyPassword('not-an-argon2-hash', 'ValidPass123')).resolves.toBe(false);
+  });
+
+  it('should generate a cached dummy Argon2id hash with the configured cost parameters', async () => {
+    const service = new PasswordService(baseConfig);
+
+    const firstHash = await service.getDummyPasswordHash();
+    const secondHash = await service.getDummyPasswordHash();
+    const parameters = parseArgon2Hash(firstHash);
+
+    expect(secondHash).toBe(firstHash);
+    expect(parameters.algorithm).toBe('argon2id');
+    expect(parameters.memoryCost).toBe(baseConfig.argon2MemoryCost);
+    expect(parameters.timeCost).toBe(baseConfig.argon2TimeCost);
+    expect(parameters.parallelism).toBe(baseConfig.argon2Parallelism);
+  });
+
+  it('should verify dummy passwords through the same verify primitive', async () => {
+    const service = new PasswordService(baseConfig);
+    const verifySpy = vi.spyOn(service, 'verifyPassword');
+    const dummyHash = await service.getDummyPasswordHash();
+
+    await expect(service.verifyAgainstDummy('WrongPass123')).resolves.toBe(false);
+
+    expect(verifySpy).toHaveBeenCalledWith(dummyHash, 'WrongPass123');
+  });
+
   it('should detect hashes that need rehashing', async () => {
     const originalService = new PasswordService(baseConfig);
     const strongerService = new PasswordService({
@@ -101,3 +131,25 @@ describe('PasswordService', () => {
     expect(strongerService.needsRehash(hash)).toBe(true);
   });
 });
+
+function parseArgon2Hash(hash: string): {
+  algorithm: string;
+  memoryCost: number;
+  timeCost: number;
+  parallelism: number;
+} {
+  const [, algorithm, , parameters] = hash.split('$');
+  const parameterMap = Object.fromEntries(
+    parameters.split(',').map((entry) => {
+      const [key, value] = entry.split('=');
+      return [key, Number(value)];
+    })
+  );
+
+  return {
+    algorithm,
+    memoryCost: parameterMap.m,
+    timeCost: parameterMap.t,
+    parallelism: parameterMap.p
+  };
+}

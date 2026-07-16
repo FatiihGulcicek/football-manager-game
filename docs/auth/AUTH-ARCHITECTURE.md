@@ -50,10 +50,19 @@ Rate limit, audit log ve `ipHash` üretimi aynı normalize edilmiş client IP ka
 
 - API yalnız güvenilen reverse proxy, CDN veya load balancer hop'larından gelen forwarded header'lara güvenir.
 - Güvenilen proxy sayısı veya CIDR allowlist environment/config üzerinden tanımlanır.
+- Bootstrap aşamasında `TRUST_PROXY_HOPS` hop count olarak, `TRUST_PROXY_CIDRS` CIDR allowlist olarak Express `trust proxy` ayarına bağlanır.
+- Bu iki ayar aynı anda kullanılamaz; config validation uygulamayı başlatmadan reddeder.
 - Güvenilmeyen bağlantılarda socket IP kullanılır.
 - İstemciden gelen `X-Forwarded-For` doğrudan kabul edilmez.
+- `request.ip` yalnız Express trusted proxy çözümünden sonra kaynak kabul edilir.
+- IPv4-mapped IPv6 adresleri normalize edilir; `LoginAttempt`, `AuditLog` ve `UserSession` aynı normalize edilmiş IP hash kaynağını kullanır.
 - Cloudflare, Nginx veya load balancer topolojisi production deployment belgesinde açıkça tanımlanmalıdır.
-- Sprint 4B config modeline `TRUST_PROXY_HOPS` veya `TRUST_PROXY_CIDRS` benzeri alanlar eklenmelidir.
+
+## Login timing ve ADMIN context kararı
+
+Kullanıcı bulunamadığında login akışı gerçek kullanıcı hash'i yerine düşük maliyetli sabit bir hash kullanmaz. `PasswordService`, uygulama process'i içinde bir kez dummy Argon2id hash üretir ve cache eder. Bu dummy hash, mevcut auth config içindeki `argon2MemoryCost`, `argon2TimeCost` ve `argon2Parallelism` değerleriyle üretilir. Böylece missing-user yolu ile wrong-password yolu aynı Argon2 verify primitive'i ve aynı maliyet sınıfını kullanır. Dummy hash üretilemezse uygulama fail-fast davranır; sessiz fallback kullanılmaz.
+
+`context=ADMIN` UI giriş yüzeyini belirtir, yetkilendirme sinyali değildir. USER rolündeki bir hesap ADMIN context ile login olabilir; bu kullanıcıya admin rolü kazandırmaz, JWT `role` her zaman DB'deki `User.role` değerinden gelir. ADMIN context yalnız `LoginAttempt`, audit metadata, monitoring ve Sprint 4F kapsamındaki daha sıkı risk/rate-limit grupları için kullanılabilir. Admin yetkileri yalnız role guard ve server-side policy ile verilir.
 
 ## Session-active cache
 
@@ -112,7 +121,7 @@ Role change audit event'i `AUTH_ROLE_CHANGED` olacaktır. `actorUserId` değişi
 | 12 | Aktif oturumları listeleme | Access token | JWT doğrulama, session-active, user active | Read-only `UserSession` sorgusu | Token üretilmez | 200 session listesi | 401/403 | `AUTH_SESSIONS_LISTED` opsiyonel | User bazlı |
 | 13 | Belirli bir oturumu iptal etme | `sessionId` | JWT doğrulama, session-active, target session kullanıcıya ait mi | Target session ve refresh tokenlar revoke edilir; cache invalidate | Target refresh token ailesi geçersiz | 204 | Başka kullanıcı session için 404 tercih edilir | `AUTH_SESSION_REVOKED` | User bazlı |
 | 14 | Hesap devre dışı bırakma | Admin veya güvenlik işlemi | Role guard, hedef kullanıcı, self-disable kuralı | `User.isActive=false`; tüm session ve refresh tokenlar revoke edilir; cache invalidate | Tüm tokenlar etkisiz | 200 veya 204 | Yetkisiz 403; hedef yok 404 | `AUTH_ACCOUNT_DISABLED` | Admin/user action limit |
-| 15 | Admin kullanıcı girişi | `email`, `password`, admin app context | Normal login kontrolleri + role `ADMIN` veya `SUPER_ADMIN` | Normal `LoginAttempt` context `ADMIN`, `UserSession`, `RefreshToken` | Aynı token altyapısı; admin UI role guard ile açılır | 200 | Normal login ile aynı `AUTH_INVALID_CREDENTIALS`; role yetersizse 403 | `AUTH_ADMIN_LOGIN_SUCCEEDED` veya failed | Daha sıkı IP + user limit, progressive delay |
+| 15 | Admin kullanıcı girişi | `email`, `password`, admin app context | Normal login kontrolleri; context yetki sinyali değildir, role DB'den gelir | Normal `LoginAttempt` context `ADMIN`, `UserSession`, `RefreshToken` | Aynı token altyapısı; admin UI role guard ile açılır | 200 | Normal login ile aynı `AUTH_INVALID_CREDENTIALS`; admin endpoint erişiminde role yetersizse 403 | `AUTH_LOGIN_SUCCEEDED` veya `AUTH_LOGIN_FAILED`, metadata context `ADMIN` | Daha sıkı IP + user limit, progressive delay Sprint 4F |
 | 16 | Yetkisiz ve yasaklı kullanıcı davranışı | Eksik/geçersiz token veya yetersiz rol | Access JWT signature/exp/iss/aud/kid, session-active, role guard | Başarısız access denemeleri audit/metric olabilir | Token üretilmez | 401 unauthenticated veya 403 forbidden | Hata mesajı kaynak detayını açıklamaz | `AUTH_UNAUTHORIZED`, `AUTH_FORBIDDEN` | Endpoint riskine göre IP + user |
 
 ## Yetkisiz ve yasaklı ayrımı

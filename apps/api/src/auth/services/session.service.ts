@@ -1,4 +1,5 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
+import { Prisma } from '@football-manager/database';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
 
@@ -43,14 +44,16 @@ export class SessionService {
   private readonly activeSessionCacheTtlSeconds = 60;
 
   constructor(
+    @Inject(PrismaService)
     private readonly prisma: PrismaService,
     @Optional() @Inject(SESSION_CACHE) private readonly cache?: SessionCache
   ) {}
 
-  async createSession(input: CreateSessionInput) {
+  async createSession(input: CreateSessionInput, transaction?: Prisma.TransactionClient) {
     const now = new Date();
+    const client = transaction ?? this.prisma;
 
-    return this.prisma.userSession.create({
+    return client.userSession.create({
       data: {
         userId: input.userId,
         tokenFamilyId: input.tokenFamilyId ?? randomUUID(),

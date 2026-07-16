@@ -16,7 +16,7 @@ postgresql://football_manager:<POSTGRES_PASSWORD>@localhost:5432/football_manage
 
 Prisma string length limits that are not supported directly by the schema should be enforced in service or DTO validation.
 
-Authentication environment placeholders live in `.env.example`. Development may use a prefixless refresh cookie and `AUTH_COOKIE_SECURE=false`; production must use `__Host-refresh_token`, `AUTH_COOKIE_SECURE=true`, `AUTH_COOKIE_DOMAIN` empty, `AUTH_COOKIE_PATH=/`, and real JWT key material from a secret manager.
+Authentication environment placeholders live in `.env.example`. Development may use a prefixless refresh cookie and `AUTH_COOKIE_SECURE=false`; if local JWT key variables are omitted, the API creates process-local ephemeral development keys. Production must use `__Host-refresh_token`, `AUTH_COOKIE_SECURE=true`, `AUTH_COOKIE_DOMAIN` empty, `AUTH_COOKIE_PATH=/`, and real JWT key material from a secret manager.
 
 ## Docker services
 
@@ -84,3 +84,34 @@ Open Prisma Studio:
 ```powershell
 pnpm db:studio
 ```
+
+## Auth smoke checks
+
+Register accepts a new account request and returns the same generic response for duplicate email attempts:
+
+```powershell
+$baseUrl = "http://localhost:4000"
+$registerPayload = @{
+  email = "smoke-register@example.invalid"
+  password = "TestOnlyPass123"
+  displayName = "Smoke Manager"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post -Uri "$baseUrl/auth/register" -ContentType "application/json" -Body $registerPayload
+```
+
+Login returns an access token in the response body and an HttpOnly refresh cookie:
+
+```powershell
+$loginPayload = @{
+  email = "smoke-register@example.invalid"
+  password = "TestOnlyPass123"
+  context = "WEB"
+} | ConvertTo-Json
+
+$loginResponse = Invoke-WebRequest -Method Post -Uri "$baseUrl/auth/login" -ContentType "application/json" -Body $loginPayload
+$loginResponse.Content
+$loginResponse.Headers["Set-Cookie"]
+```
+
+Until the email verification endpoint exists, local manual login checks require setting `emailVerifiedAt` for the local test user through a controlled development DB update.
