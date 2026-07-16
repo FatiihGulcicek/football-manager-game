@@ -6,6 +6,8 @@ import { AccessTokenService } from './services/access-token.service';
 import { LoginRateLimitService } from './services/login-rate-limit.service';
 import { LoginService } from './services/login.service';
 import { PasswordService } from './services/password.service';
+import { RefreshRateLimitService } from './services/refresh-rate-limit.service';
+import { RefreshService } from './services/refresh.service';
 import { RefreshTokenService } from './services/refresh-token.service';
 import { RegisterRateLimitService } from './services/register-rate-limit.service';
 import { RegisterService } from './services/register.service';
@@ -25,6 +27,8 @@ import { TokenHashService } from './services/token-hash.service';
     AccessTokenService,
     SessionService,
     RefreshTokenService,
+    RefreshRateLimitService,
+    RefreshService,
     LoginRateLimitService,
     LoginService,
     RegisterRateLimitService,
@@ -36,6 +40,8 @@ import { TokenHashService } from './services/token-hash.service';
     AccessTokenService,
     SessionService,
     RefreshTokenService,
+    RefreshRateLimitService,
+    RefreshService,
     LoginRateLimitService,
     LoginService,
     RegisterRateLimitService,

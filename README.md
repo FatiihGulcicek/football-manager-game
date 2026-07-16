@@ -115,3 +115,17 @@ $loginResponse.Headers["Set-Cookie"]
 ```
 
 Until the email verification endpoint exists, local manual login checks require setting `emailVerifiedAt` for the local test user through a controlled development DB update.
+
+Refresh rotates the HttpOnly refresh cookie and returns a new access token. The request body stays empty; do not put the refresh token in JSON, query params, or headers:
+
+```powershell
+$cookieHeader = ($loginResponse.Headers["Set-Cookie"] -split ";")[0]
+$refreshResponse = Invoke-WebRequest -Method Post -Uri "$baseUrl/auth/refresh" -Headers @{
+  Cookie = $cookieHeader
+}
+
+$refreshResponse.Content
+$refreshResponse.Headers["Set-Cookie"]
+```
+
+An immediate second request with the old cookie may return `AUTH_REFRESH_CONFLICT`; replay outside the grace window revokes the session.

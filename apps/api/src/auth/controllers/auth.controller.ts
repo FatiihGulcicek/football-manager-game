@@ -1,10 +1,19 @@
-import { Body, Controller, HttpCode, HttpStatus, Inject, Post, Req, Res } from '@nestjs/common';
+import { BadRequestException, Body, Controller, HttpCode, HttpStatus, Inject, Post, Req, Res } from '@nestjs/common';
 import { LoginContext } from '@football-manager/database';
 import { AUTH_CONFIG, AuthConfig } from '../../config/auth.config';
 import { resolveClientIp } from '../../http/client-ip.util';
+import {
+  clearRefreshCookie,
+  readCookie,
+  RefreshCookieResponse,
+  setRefreshCookie
+} from '../cookies/refresh-cookie';
 import { LoginDto, LoginResponseDto } from '../dto/login.dto';
+import { RefreshResponseDto } from '../dto/refresh.dto';
 import { RegisterDto, RegisterResponseDto } from '../dto/register.dto';
+import { AuthRefreshException } from '../errors/auth-refresh.exception';
 import { LoginRequestContext, LoginService } from '../services/login.service';
+import { RefreshRequestContext, RefreshService } from '../services/refresh.service';
 import { RegisterService } from '../services/register.service';
 
 @Controller('auth')
@@ -12,6 +21,7 @@ export class AuthController {
   constructor(
     @Inject(RegisterService) private readonly registerService: RegisterService,
     @Inject(LoginService) private readonly loginService: LoginService,
+    @Inject(RefreshService) private readonly refreshService: RefreshService,
     @Inject(AUTH_CONFIG) private readonly config: AuthConfig
   ) {}
 
@@ -26,23 +36,43 @@ export class AuthController {
   async login(
     @Body() dto: LoginDto,
     @Req() request: AuthHttpRequest,
-    @Res({ passthrough: true }) response: CookieResponse
+    @Res({ passthrough: true }) response: RefreshCookieResponse
   ): Promise<LoginResponseDto> {
     const loginResult = await this.loginService.login(
       dto,
       createLoginRequestContext(request, dto.context, this.config)
     );
 
-    response.cookie(this.config.cookieName, loginResult.refreshCookie.value, {
-      httpOnly: true,
-      secure: this.config.cookieSecure,
-      sameSite: this.config.cookieSameSite,
-      path: this.config.cookiePath,
-      maxAge: this.config.refreshTokenTtlSeconds * 1000,
-      ...(this.config.cookieDomain ? { domain: this.config.cookieDomain } : {})
-    });
+    setRefreshCookie(response, this.config, loginResult.refreshCookie.value);
 
     return loginResult.response;
+  }
+
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  async refresh(
+    @Body() body: unknown,
+    @Req() request: AuthHttpRequest,
+    @Res({ passthrough: true }) response: RefreshCookieResponse
+  ): Promise<RefreshResponseDto> {
+    assertEmptyRefreshBody(body);
+
+    try {
+      const result = await this.refreshService.refresh(
+        readCookie(readHeader(request, 'cookie'), this.config.cookieName),
+        createRefreshRequestContext(request, this.config)
+      );
+
+      setRefreshCookie(response, this.config, result.refreshCookie.value);
+
+      return result.response;
+    } catch (error) {
+      if (isAuthRefreshException(error) && error.clearRefreshCookie) {
+        clearRefreshCookie(response, this.config);
+      }
+
+      throw error;
+    }
   }
 }
 
@@ -52,19 +82,6 @@ type AuthHttpRequest = {
     remoteAddress?: string;
   };
   ip?: string;
-};
-
-type CookieResponse = {
-  cookie: (name: string, value: string, options: RefreshCookieOptions) => void;
-};
-
-type RefreshCookieOptions = {
-  httpOnly: true;
-  secure: boolean;
-  sameSite: AuthConfig['cookieSameSite'];
-  path: string;
-  maxAge: number;
-  domain?: string;
 };
 
 function createLoginRequestContext(
@@ -87,6 +104,36 @@ function createLoginRequestContext(
     browser,
     operatingSystem
   };
+}
+
+function createRefreshRequestContext(
+  request: AuthHttpRequest,
+  config: AuthConfig
+): RefreshRequestContext {
+  return {
+    requestId: readHeader(request, 'x-request-id'),
+    clientIp: resolveClientIp(request, config)
+  };
+}
+
+function assertEmptyRefreshBody(body: unknown): void {
+  if (body === undefined || body === null) {
+    return;
+  }
+
+  if (typeof body === 'object' && !Array.isArray(body) && Object.keys(body).length === 0) {
+    return;
+  }
+
+  throw new BadRequestException('Refresh request body must be empty');
+}
+
+function isAuthRefreshException(error: unknown): error is AuthRefreshException {
+  return (
+    error instanceof Error &&
+    'clearRefreshCookie' in error &&
+    typeof (error as AuthRefreshException).clearRefreshCookie === 'boolean'
+  );
 }
 
 function readHeader(request: AuthHttpRequest, headerName: string): string | undefined {
