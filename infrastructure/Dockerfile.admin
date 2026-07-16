@@ -1,0 +1,18 @@
+FROM node:20-alpine AS base
+WORKDIR /workspace
+
+COPY package.json pnpm-workspace.yaml ./
+COPY apps/admin/package.json ./apps/admin/
+RUN npm install -g pnpm@8.0.0
+RUN pnpm install --frozen-lockfile
+
+COPY . .
+WORKDIR /workspace/apps/admin
+RUN pnpm build
+
+FROM node:20-alpine AS runtime
+WORKDIR /workspace/apps/admin
+COPY --from=base /workspace/apps/admin/.next ./.next
+COPY --from=base /workspace/apps/admin/public ./public
+COPY --from=base /workspace/apps/admin/package.json ./package.json
+CMD ["pnpm", "start"]

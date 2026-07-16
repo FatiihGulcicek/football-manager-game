@@ -6,6 +6,10 @@ yarn-debug.log*
 yarn-error.log*
 lerna-debug.log*
 
+# OS files
+.DS_Store
+Thumbs.db
+
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
@@ -19,7 +23,7 @@ pids
 lib-cov
 
 # Coverage directory used by tools like istanbul
-coverage
+coverage/
 *.lcov
 
 # nyc test coverage
@@ -46,6 +50,9 @@ web_modules/
 
 # TypeScript cache
 *.tsbuildinfo
+
+# Monorepo cache
+.turbo/
 
 # Optional npm cache directory
 .npm
@@ -75,12 +82,12 @@ web_modules/
 .parcel-cache
 
 # Next.js build output
-.next
+.next/
 out
 
 # Nuxt.js build / generate output
 .nuxt
-dist
+dist/
 .output
 
 # Gatsby files
@@ -124,6 +131,10 @@ dist
 
 # Stores VSCode versions used for testing VSCode extensions
 .vscode-test
+
+# Editor settings
+.vscode/
+.idea/
 
 # pnpm
 .pnpm-store
