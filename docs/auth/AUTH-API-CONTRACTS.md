@@ -1,0 +1,150 @@
+# Authentication API Contracts
+
+Bu belge API sözleşmesini tasarlar. Bu sprintte endpoint kodu yazılmaz.
+
+## Ortak kurallar
+
+- Response tarihleri ISO 8601 UTC olmalıdır.
+- Request DTO'ları NestJS DTO validation ile doğrulanmalıdır.
+- DTO payload size limiti uygulanmalıdır.
+- E-posta normalize edilerek küçük harfe çevrilmeli ve boşluklardan arındırılmalıdır.
+- Parola hash öncesinde Unicode NFC normalization uygulanır; maksimum uzunluk kontrolü Argon2 çağrısından önce yapılır.
+- Null byte ve sakıncalı kontrol karakterleri reddedilir.
+- Role bilgisi request body, query veya client state içinden kabul edilmez.
+- Refresh token response body içinde dönmez; HttpOnly cookie ile taşınır.
+- Access token kısa ömürlü olduğu için response body içinde dönebilir ve istemci belleğinde tutulur.
+- Her authenticated endpoint JWT doğrulamasından sonra `sid` ile session-active kontrolü yapar.
+- Admin ve normal kullanıcı aynı auth altyapısını kullanır; erişim role guard ile ayrılır.
+
+## JWT beklentileri
+
+- JWT `alg`: `ES256`.
+- JWT header içinde `kid` zorunludur.
+- Payload zorunlu claimleri: `sub`, `role`, `sid`, `iat`, `exp`, `iss`, `aud`.
+- `iss`: `football-manager-auth`.
+- `aud`: `football-manager-api`.
+- Clock skew toleransı 5-10 saniye aralığında tutulur.
+- Aktif key ve önceki public keyler sınırlı doğrulama penceresinde kabul edilir.
+- Role change sonrası tüm sessionlar revoke edildiği için eski access tokenlar session-active kontrolünde reddedilir.
+
+## CORS ve credential kuralları
+
+- Production credential allowlist yalnız `https://app.example.com` ve `https://admin.example.com` originlerini kapsar.
+- `Access-Control-Allow-Credentials=true` yalnız allowlist originlerde kullanılır.
+- Wildcard origin ve credentials birlikte yasaktır.
+- Development originleri environment üzerinden ayrıca listelenir.
+
+## Ortak hata yapısı
+
+```json
+{
+  "error": {
+    "code": "AUTH_INVALID_CREDENTIALS",
+    "message": "E-posta veya şifre hatalı.",
+    "requestId": "req_..."
+  }
+}
+```
+
+Hata mesajları kullanıcı varlığı, e-posta doğrulama durumu veya parola yanlışlığı hakkında gereksiz ayrıntı açıklamaz.
+
+## Endpoint sözleşmeleri
+
+| Endpoint | Auth | Request DTO | Response DTO | Durum kodları | Güvenli hata kodları | Rate limit | Audit log | Idempotency |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `POST /auth/register` | Public | `{ email, password, displayName? }` | `{ status: "accepted" }` | 202, 400, 429 | `AUTH_VALIDATION_FAILED`, `AUTH_RATE_LIMITED` | Normalize IP + emailHash | `AUTH_REGISTER_REQUESTED` | Her zaman generic 202; e-posta zaten kayıtlıysa API açıklamaz, gerekirse mevcut kullanıcıya güvenli bilgilendirme e-postası gönderilir. |
+| `POST /auth/login` | Public | `{ email, password, deviceName? }` | `{ accessToken, expiresIn, user: PublicUser }` + refresh cookie | 200, 400, 401, 429 | `AUTH_INVALID_CREDENTIALS`, `AUTH_ACCOUNT_UNAVAILABLE`, `AUTH_RATE_LIMITED` | IP + emailHash + userId | success/failure login; `LoginAttempt.context` route/origin/app bağlamından server tarafında türetilir | Aynı credential tekrar yeni session oluşturur; rate limit korur. |
+| `POST /auth/refresh` | Refresh cookie | Empty body | `{ accessToken, expiresIn, user: PublicUser }` + rotated refresh cookie | 200, 401, 409, 429 | `AUTH_REFRESH_INVALID`, `AUTH_REFRESH_CONFLICT`, `AUTH_SESSION_REVOKED`, `AUTH_RATE_LIMITED` | Session + IP | `AUTH_REFRESH_ROTATED`, reuse varsa `AUTH_REFRESH_REUSE_DETECTED` | Token tek kullanımlıdır; kısa parallel yarışta 409 conflict döner, gerçek replay session revoke eder. |
+| `POST /auth/logout` | Access token veya refresh cookie | Empty body | Empty | 204, 401 | `AUTH_UNAUTHORIZED` | User + IP | `AUTH_LOGOUT` | Idempotent; zaten çıkılmışsa 204 dönebilir. |
+| `POST /auth/logout-all` | Access token | Empty body | Empty | 204, 401 | `AUTH_UNAUTHORIZED` | User + IP | `AUTH_LOGOUT_ALL` | Idempotent; active session yoksa 204. |
+| `POST /auth/verify-email` | Public | `{ token }` | `{ status: "verified" }` | 200, 400, 410, 429 | `AUTH_VERIFICATION_INVALID`, `AUTH_VERIFICATION_EXPIRED`, `AUTH_RATE_LIMITED` | Token hash + IP | `AUTH_EMAIL_VERIFIED`, failed | Kullanılmış token tekrar geldiğinde güvenli genel sonuç dönebilir. |
+| `POST /auth/resend-verification` | Public veya authenticated | `{ email }` | `{ status: "accepted" }` | 202, 400, 429 | `AUTH_RATE_LIMITED`, `AUTH_VALIDATION_FAILED` | IP + emailHash | `AUTH_EMAIL_VERIFICATION_RESENT` | Her zaman accepted; hesap varlığı açıklanmaz; önceki unused tokenlar revoke edilir. |
+| `POST /auth/forgot-password` | Public | `{ email }` | `{ status: "accepted" }` | 202, 400, 429 | `AUTH_RATE_LIMITED`, `AUTH_VALIDATION_FAILED` | IP + emailHash | `AUTH_PASSWORD_RESET_REQUESTED` | Her zaman accepted; hesap varlığı açıklanmaz; önceki unused reset tokenlar revoke edilir. |
+| `POST /auth/reset-password` | Public | `{ token, newPassword }` | `{ status: "password_reset" }` | 200, 400, 410, 429 | `AUTH_RESET_INVALID`, `AUTH_RESET_EXPIRED`, `AUTH_PASSWORD_POLICY_FAILED` | Token hash + IP | `AUTH_PASSWORD_RESET_COMPLETED`, failed | Başarılı kullanım tek seferliktir; tekrar kullanım invalid kabul edilir. |
+| `POST /auth/change-password` | Access token + active session | `{ currentPassword, newPassword }` | `{ status: "password_changed" }` | 200, 400, 401, 429 | `AUTH_INVALID_CREDENTIALS`, `AUTH_PASSWORD_POLICY_FAILED`, `AUTH_RATE_LIMITED` | User + IP | `AUTH_PASSWORD_CHANGED` | Aynı istek tekrar current password değiştiği için başarısız olabilir. |
+| `GET /auth/me` | Access token + active session | None | `{ user: PublicUser, session: CurrentSession }` | 200, 401 | `AUTH_UNAUTHORIZED`, `AUTH_SESSION_REVOKED` | Normal API limit | Opsiyonel `AUTH_ME_READ` metric | Read-only. |
+| `GET /auth/sessions` | Access token + active session | None | `{ sessions: SessionSummary[] }` | 200, 401 | `AUTH_UNAUTHORIZED` | User limit | `AUTH_SESSIONS_LISTED` opsiyonel | Read-only. |
+| `DELETE /auth/sessions/:sessionId` | Access token + active session | Path `sessionId` | Empty | 204, 401, 404 | `AUTH_UNAUTHORIZED`, `AUTH_SESSION_NOT_FOUND` | User limit | `AUTH_SESSION_REVOKED` | Idempotent; kullanıcıya ait olmayan veya yok session için 404. |
+
+## Refresh conflict davranışı
+
+`AUTH_REFRESH_CONFLICT`, yalnız kısa parallel refresh yarışını ifade eder; e-posta enumeration ile ilgisi yoktur.
+
+- HTTP 409 kullanılabilir.
+- Session otomatik revoke edilmez.
+- İstemci kısa jitter sonrası yalnız bir kez yeniden deneyebilir.
+- Sürekli tekrar durumunda login ekranına yönlendirilir.
+- Grace window dışındaki eski token kullanımı `AUTH_REFRESH_INVALID` veya reuse detection ile session revoke sonucuna gider.
+
+## DTO şekilleri
+
+### PublicUser
+
+```json
+{
+  "id": "uuid",
+  "email": "user@example.com",
+  "role": "USER",
+  "emailVerified": true,
+  "isActive": true
+}
+```
+
+`PublicUser` içinde parola hash, token bilgisi, internal flags veya güvenlik metadata bulunmaz.
+
+### CurrentSession
+
+```json
+{
+  "id": "uuid",
+  "deviceName": "Windows Chrome",
+  "deviceType": "desktop",
+  "browser": "Chrome",
+  "operatingSystem": "Windows",
+  "countryCode": "TR",
+  "city": "Istanbul",
+  "lastSeenAt": "2026-07-16T10:00:00.000Z",
+  "expiresAt": "2026-08-15T10:00:00.000Z"
+}
+```
+
+Raw IP ve tam user-agent response içinde dönmez.
+
+## Hata kodları
+
+| Kod | Anlam |
+| --- | --- |
+| `AUTH_INVALID_CREDENTIALS` | Login veya password check başarısız; neden ayrıştırılmaz. |
+| `AUTH_UNAUTHORIZED` | Access token eksik, geçersiz, süresi dolmuş veya session-active kontrolünden geçememiş. |
+| `AUTH_FORBIDDEN` | Kullanıcı authenticated ve session active ancak role veya policy yetersiz. |
+| `AUTH_SESSION_REVOKED` | Session iptal edilmiş veya geçersiz. |
+| `AUTH_REFRESH_INVALID` | Refresh cookie yok, hash eşleşmedi, süresi doldu veya revoked. |
+| `AUTH_REFRESH_CONFLICT` | Kısa parallel refresh yarışında ikinci istek kontrollü reddedildi. |
+| `AUTH_RATE_LIMITED` | IP, user, session veya emailHash limitine takıldı. |
+| `AUTH_PASSWORD_POLICY_FAILED` | Yeni parola policy'yi karşılamıyor. |
+| `AUTH_VERIFICATION_INVALID` | E-posta doğrulama tokenı geçersiz. |
+| `AUTH_RESET_INVALID` | Şifre sıfırlama tokenı geçersiz. |
+
+## Cookie sözleşmesi
+
+Production refresh cookie:
+
+- Ad: `__Host-refresh_token`.
+- Domain attribute kullanılmaz; cookie host-only kalır.
+- Host scope: `api.example.com`.
+- `Path=/`.
+- `Secure=true`.
+- `HttpOnly=true`.
+- `SameSite=Lax`.
+
+`__Host-` prefix güvenliği için Domain attribute kullanılmaz ve `Path=/` zorunludur. Bu bilinçli olarak dar path yerine host-only güvenlik modelini seçer.
+
+Development refresh cookie:
+
+- Localhost için prefix'siz cookie adı kullanılabilir.
+- `Secure=false` olabilir.
+- `SameSite=Lax` korunur.
+- Environment bazlı cookie config kullanılır.
+- Config validation production ayarlarının yanlışlıkla development'a veya development gevşekliğinin production'a sızmasını engellemelidir.
+
+Logout, refresh replay ve session revoke durumunda cookie expire edilmelidir.
