@@ -49,6 +49,15 @@ Bu plan Sprint 4B ve sonrası auth uygulaması için beklenen test kapsamını t
 | Refresh race grace-window/conflict davranışı | Grace window içindeki ikinci istek session revoke etmez; sürekli tekrar login gerektirir. |
 | Replay detection ve session revoke | Grace window dışındaki eski refresh token replay sayılır ve session/token family revoke edilir. |
 | Refresh LoginAttempt izolasyonu | Refresh success, conflict, invalid ve replay durumları `LoginAttempt` tablosuna yazılmaz. |
+| Logout valid cookie | 204 empty body döner, refresh cookie clear edilir, current session `user_logout` ile revoke edilir ve session refresh tokenları revoked olur. |
+| Logout idempotent repeat | Aynı cookie tekrar gönderildiğinde 204 döner, ek session/audit yan etkisi oluşmaz. |
+| Logout missing cookie | DB lookup yapılmadan 204 döner ve refresh cookie clear edilir. |
+| Logout forged cookie | Token bulunamadığı açıklanmaz; 204 döner, cookie clear edilir, session revoke edilmez. |
+| Logout invalid body | Body doluysa 400 `AUTH_LOGOUT_INVALID_BODY` standart auth hata zarfı döner. |
+| Logout query/header token rejection | Query veya header ile gelen refresh token yok sayılır; cookie yoksa logout idempotent 204 döner. |
+| Logout current-session isolation | İki farklı session varken yalnız cookie ile eşleşen current session kapanır, diğer session aktif kalır. |
+| Logout transaction rollback | Refresh token revoke fail olursa session yarım revoked durumda kalmaz ve başarı gibi raporlanmaz. |
+| Logout LoginAttempt izolasyonu | Logout success, missing cookie ve invalid cookie durumları `LoginAttempt` tablosuna yazılmaz. |
 | Logout | Current session ve bağlı refresh tokenlar revoke edilir, cookie temizlenir, access token hemen reddedilir. |
 | Logout all devices | Kullanıcının tüm sessionları revoke edilir ve eski access tokenlar session-active kontrolünde reddedilir. |
 | Role change sonrası eski access token reddi | Role değiştiğinde tüm sessionlar revoke edilir; eski token 401 alır. |
@@ -84,6 +93,8 @@ Bu plan Sprint 4B ve sonrası auth uygulaması için beklenen test kapsamını t
 | Production cookie attribute assertion | `__Host-refresh_token`, host-only, `Path=/`, Secure, HttpOnly, SameSite=Lax doğrulanır. |
 | Refresh raw-token leakage | Raw refresh token DB, JSON body, audit metadata ve loglarda bulunmaz; yalnız Set-Cookie içinde taşınır. |
 | Refresh invalid body leakage | `AUTH_REFRESH_INVALID_BODY` response'u raw body, refresh token, cookie değeri veya DB detayı içermez. |
+| Logout raw-token leakage | Logout response, audit metadata ve loglar raw refresh token, cookie değeri, access token, authorization header, raw IP ve user-agent içermez. |
+| Logout production clear-cookie attributes | `__Host-refresh_token`, host-only, `Path=/`, Secure, HttpOnly, SameSite=Lax ve geçmiş expiry doğrulanır. |
 | Development cookie policy | Localhost prefix'siz ve `Secure=false` çalışabilir; production validation bunu production'da reddeder. |
 | XSS taşıyan displayName veya deviceName | Değerler encode edilir, script çalışmaz, loglara raw zararlı içerik yazılmaz. |
 | Yetki yükseltme | Request body ile `role=ADMIN` gönderilse bile rol değişmez. |

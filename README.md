@@ -129,3 +129,17 @@ $refreshResponse.Headers["Set-Cookie"]
 ```
 
 An immediate second request with the old cookie may return `AUTH_REFRESH_CONFLICT`; replay outside the grace window revokes the session.
+
+Logout closes only the current session represented by the refresh cookie, clears the HttpOnly cookie, and returns an empty 204 response. Do not send the refresh token in JSON, query params, or headers:
+
+```powershell
+$latestCookieHeader = ($refreshResponse.Headers["Set-Cookie"] -split ";")[0]
+$logoutResponse = Invoke-WebRequest -Method Post -Uri "$baseUrl/auth/logout" -Headers @{
+  Cookie = $latestCookieHeader
+}
+
+$logoutResponse.StatusCode
+$logoutResponse.Headers["Set-Cookie"]
+```
+
+Calling logout again with the same or a missing cookie is safe and should still return 204.

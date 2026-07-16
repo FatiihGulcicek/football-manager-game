@@ -33,7 +33,7 @@ Sprint 4B config kapsamı:
 
 ## Sprint 4C - Password, JWT, session, register ve login
 
-Durum: Kısmen tamamlandı. Sprint 4C.1 kapsamında `POST /auth/register`, Sprint 4C.2 kapsamında `POST /auth/login`, Sprint 4C.3 kapsamında `POST /auth/refresh` uygulandı; logout, logout-all ve session listeleme sonraki alt sprintlerde kalır.
+Durum: Kısmen tamamlandı. Sprint 4C.1 kapsamında `POST /auth/register`, Sprint 4C.2 kapsamında `POST /auth/login`, Sprint 4C.3 kapsamında `POST /auth/refresh`, Sprint 4C.4 kapsamında `POST /auth/logout` uygulandı; logout-all ve session listeleme sonraki alt sprintlerde kalır.
 
 | Alan | Detay |
 | --- | --- |
@@ -97,6 +97,19 @@ Sprint 4C.3 tamamlananlar:
 - Refresh akışı `LoginAttempt` yazmaz; audit metadata allowlist `context`, `reason`, `sessionId` ile sınırlıdır.
 - Refresh rate limit için `RefreshRateLimitService` boundary eklendi; Redis destekli gerçek limit Sprint 4F kapsamındadır.
 - Unit, HTTP integration, race, rollback, replay ve production cookie attribute testleri eklendi.
+
+Sprint 4C.4 tamamlananlar:
+
+- `POST /auth/logout` endpointi eklendi; request body boş olmalıdır.
+- Refresh token yalnız auth config cookie adından okunur; body, query veya header içinden token kabul edilmez.
+- Cookie yok, uydurma cookie veya zaten revoked session durumları idempotent 204 döner.
+- Eşleşen aktif session için current `UserSession` `revokedAt` alır, `revokeReason="user_logout"` olur ve session'a bağlı aktif refresh tokenlar revoke edilir.
+- Refresh cookie her normal logout çağrısında config ile uyumlu attribute'larla clear edilir.
+- Session cache invalidate edilir; başka sessionlar etkilenmez.
+- `AUTH_LOGOUT` audit event metadata allowlist `context`, `reason`, `sessionId` ile sınırlıdır.
+- Logout akışı `LoginAttempt` yazmaz; raw token, raw cookie, access token, user-agent ve raw IP response/audit içine girmez.
+- Body dolu logout istekleri `AUTH_LOGOUT_INVALID_BODY` 400 auth hata zarfıyla reddedilir.
+- Audit yazma hatası session revoke sonucunu tersine çevirmez; revoke transaction hatası başarı gibi raporlanmaz.
 
 ## Sprint 4D - Refresh rotation, logout ve session yönetimi
 

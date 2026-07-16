@@ -12,9 +12,11 @@ import {
 import { LoginDto, LoginResponseDto } from '../dto/login.dto';
 import { RefreshResponseDto } from '../dto/refresh.dto';
 import { RegisterDto, RegisterResponseDto } from '../dto/register.dto';
+import { AuthLogoutInvalidBodyException } from '../errors/auth-logout-invalid-body.exception';
 import { AuthRefreshException } from '../errors/auth-refresh.exception';
 import { AuthRefreshInvalidBodyException } from '../errors/auth-refresh-invalid-body.exception';
 import { LoginRequestContext, LoginService } from '../services/login.service';
+import { LogoutRequestContext, LogoutService } from '../services/logout.service';
 import { RefreshRequestContext, RefreshService } from '../services/refresh.service';
 import { RegisterService } from '../services/register.service';
 
@@ -24,6 +26,7 @@ export class AuthController {
     @Inject(RegisterService) private readonly registerService: RegisterService,
     @Inject(LoginService) private readonly loginService: LoginService,
     @Inject(RefreshService) private readonly refreshService: RefreshService,
+    @Inject(LogoutService) private readonly logoutService: LogoutService,
     @Inject(AUTH_CONFIG) private readonly config: AuthConfig
   ) {}
 
@@ -76,6 +79,25 @@ export class AuthController {
       throw error;
     }
   }
+
+  @Post('logout')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async logout(
+    @Body() body: unknown,
+    @Req() request: AuthHttpRequest,
+    @Res({ passthrough: true }) response: RefreshCookieResponse
+  ): Promise<void> {
+    assertEmptyLogoutBody(body, createRequestId(request));
+
+    try {
+      await this.logoutService.logout(
+        readCookie(readHeader(request, 'cookie'), this.config.cookieName),
+        createLogoutRequestContext(request, this.config)
+      );
+    } finally {
+      clearRefreshCookie(response, this.config);
+    }
+  }
 }
 
 type AuthHttpRequest = {
@@ -118,6 +140,16 @@ function createRefreshRequestContext(
   };
 }
 
+function createLogoutRequestContext(
+  request: AuthHttpRequest,
+  config: AuthConfig
+): LogoutRequestContext {
+  return {
+    requestId: readHeader(request, 'x-request-id'),
+    clientIp: resolveClientIp(request, config)
+  };
+}
+
 function assertEmptyRefreshBody(body: unknown, requestId: string): void {
   if (body === undefined || body === null) {
     return;
@@ -128,6 +160,18 @@ function assertEmptyRefreshBody(body: unknown, requestId: string): void {
   }
 
   throw new AuthRefreshInvalidBodyException(requestId);
+}
+
+function assertEmptyLogoutBody(body: unknown, requestId: string): void {
+  if (body === undefined || body === null) {
+    return;
+  }
+
+  if (typeof body === 'object' && !Array.isArray(body) && Object.keys(body).length === 0) {
+    return;
+  }
+
+  throw new AuthLogoutInvalidBodyException(requestId);
 }
 
 function isAuthRefreshException(error: unknown): error is AuthRefreshException {

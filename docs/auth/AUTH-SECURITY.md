@@ -163,6 +163,20 @@ Concurrent refresh için MVP kararı:
 - Grace window dışındaki tekrar kullanım gerçek replay kabul edilir ve session revoke edilir.
 - Conflict durumunda cookie temizlenmez; replay/invalid durumlarında mevcut refresh cookie temizlenebilir.
 
+## Current-session logout
+
+- Sprint 4C.4 uygulamasında `POST /auth/logout` current session'ı yalnız HttpOnly refresh cookie üzerinden çözer.
+- Refresh token body, query, authorization header veya özel header içinden kabul edilmez.
+- Cookie yoksa veya token bulunamazsa endpoint idempotent 204 döner, cookie clear edilir ve token/session varlığı açıklanmaz.
+- Eşleşen aktif session bulunduğunda `UserSession.revokedAt` set edilir, `revokeReason="user_logout"` olur ve aynı session'a bağlı aktif refresh tokenlar revoke edilir.
+- Session revoke ve refresh token family revoke işlemi transaction sınırında tutulur; transaction başarısızsa yarım revoke başarı gibi raporlanmaz.
+- Session cache revoke sonrasında invalidate edilir. Cache invalidation hatası DB revoke sonucunu gizlemez.
+- Refresh cookie her normal logout çağrısında login/refresh sırasında kullanılan cookie attribute'larıyla uyumlu şekilde clear edilir.
+- Logout `LoginAttempt` yazmaz.
+- `AUTH_LOGOUT` audit metadata allowlist `context`, `reason`, `sessionId` ile sınırlıdır.
+- Raw refresh token, cookie değeri, access token, authorization header, raw IP ve user-agent response, audit metadata veya loglara yazılmaz.
+- Audit write hatası session revoke güvenlik sonucunu tersine çevirmez.
+
 ## Rate limit ve brute-force koruması
 
 Katmanlı yaklaşım:
