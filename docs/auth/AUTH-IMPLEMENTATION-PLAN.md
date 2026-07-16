@@ -33,7 +33,7 @@ Sprint 4B config kapsamı:
 
 ## Sprint 4C - Password, JWT, session, register ve login
 
-Durum: Kısmen tamamlandı. Sprint 4C.1 kapsamında `POST /auth/register`, Sprint 4C.2 kapsamında `POST /auth/login` uygulandı; refresh endpointi, logout, logout-all ve session listeleme sonraki alt sprintlerde kalır.
+Durum: Kısmen tamamlandı. Sprint 4C.1 kapsamında `POST /auth/register`, Sprint 4C.2 kapsamında `POST /auth/login`, Sprint 4C.3 kapsamında `POST /auth/refresh` uygulandı; logout, logout-all ve session listeleme sonraki alt sprintlerde kalır.
 
 | Alan | Detay |
 | --- | --- |
@@ -83,15 +83,30 @@ Sprint 4C.2.2 güvenlik düzeltmeleri:
 - `context=ADMIN` yetkilendirme sinyali değildir; JWT role DB'den gelir, context yalnız login attempt/audit/risk metadata'sıdır.
 - Login service internal sonucu public response DTO ve refresh-cookie payload olarak ayrıldı; raw refresh token response body'ye yayılmaz.
 
+Sprint 4C.3 tamamlananlar:
+
+- `POST /auth/refresh` endpointi eklendi; request body boş olmalıdır.
+- Refresh token yalnız auth config cookie adından okunur; body, query veya header içinden token kabul edilmez.
+- Controller'a ulaşan body dolu refresh istekleri standart `AUTH_REFRESH_INVALID_BODY` 400 auth hata zarfıyla reddedilir; raw body, token, cookie değeri veya DB detayı response'a yansımaz.
+- Başarılı refresh transaction içinde parent token `usedAt` alır, yeni child refresh token hash olarak saklanır, session `lastSeenAt` güncellenir ve `AUTH_REFRESH_SUCCEEDED` audit log yazılır.
+- Yeni access token `AccessTokenService` ile DB'deki user role ve session id üzerinden üretilir.
+- Yeni refresh token response body'ye girmez; yalnız HttpOnly refresh cookie overwrite edilir.
+- Kısa grace window içindeki aynı parent kullanımı `AUTH_REFRESH_CONFLICT` 409 döner, yeni child üretmez ve session revoke etmez.
+- Grace window dışındaki replay `AUTH_REFRESH_REUSED` 401 döner, session ve token family revoke eder.
+- Cookie yok, invalid, expired, revoked, expired session ve disabled user durumları güvenli `AUTH_REFRESH_INVALID` 401 response döner.
+- Refresh akışı `LoginAttempt` yazmaz; audit metadata allowlist `context`, `reason`, `sessionId` ile sınırlıdır.
+- Refresh rate limit için `RefreshRateLimitService` boundary eklendi; Redis destekli gerçek limit Sprint 4F kapsamındadır.
+- Unit, HTTP integration, race, rollback, replay ve production cookie attribute testleri eklendi.
+
 ## Sprint 4D - Refresh rotation, logout ve session yönetimi
 
 | Alan | Detay |
 | --- | --- |
-| Amaç | Atomic refresh token rotation, reuse detection, logout, logout-all, session listesi ve session revoke endpointlerini uygulamak. |
-| Değişecek ana dosyalar | Auth session service, refresh token repository/service, auth controller, guards, tests. |
-| Test şartları | Refresh success, concurrent refresh conflict, transaction rollback, replay attack, revoked session, logout, logout-all, başka kullanıcının sessionını silme testleri. |
-| Kabul kriterleri | Refresh token tek kullanımlıdır; short race `AUTH_REFRESH_CONFLICT` döner; gerçek replay session revoke eder; access token revoke sonrası hemen reddedilir. |
-| Riskler | Concurrent refresh race condition, cookie temizleme davranışının browserlar arasında farklılaşması, session-active cache invalidation hataları. |
+| Amaç | Logout, logout-all, session listesi ve session revoke endpointlerini uygulamak; refresh sonrası session-active davranışını authenticated endpointlerle bağlamak. |
+| Değişecek ana dosyalar | Auth session service, auth controller, guards, tests. |
+| Test şartları | Logout, logout-all, revoked session, başka kullanıcının sessionını silme ve access token revoke sonrası reddi testleri. |
+| Kabul kriterleri | Logout current session ve refresh family'yi iptal eder; logout-all tüm sessionları revoke eder; access token revoke sonrası hemen reddedilir. |
+| Riskler | Cookie temizleme davranışının browserlar arasında farklılaşması, session-active cache invalidation hataları. |
 
 ## Sprint 4E - E-posta doğrulama ve şifre sıfırlama
 

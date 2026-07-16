@@ -13,6 +13,7 @@ import { LoginRateLimitService } from '../services/login-rate-limit.service';
 import { LoginService } from '../services/login.service';
 import { PasswordService } from '../services/password.service';
 import { RefreshTokenService } from '../services/refresh-token.service';
+import { RefreshService } from '../services/refresh.service';
 import { RegisterService } from '../services/register.service';
 import { SessionService } from '../services/session.service';
 import { TokenHashService } from '../services/token-hash.service';
@@ -450,6 +451,12 @@ async function createAuthLoginApplication(
       LoginRateLimitService,
       SessionService,
       RefreshTokenService,
+      {
+        provide: RefreshService,
+        useValue: {
+          refresh: vi.fn()
+        }
+      },
       {
         provide: AUTH_CONFIG,
         useValue: authConfig

@@ -1,6 +1,6 @@
 # Authentication API Contracts
 
-Bu belge authentication API sözleşmelerini tanımlar. Sprint 4C.2 itibarıyla `POST /auth/register` ve `POST /auth/login` uygulanmıştır; diğer endpointler sonraki alt sprintler için sözleşme durumundadır.
+Bu belge authentication API sözleşmelerini tanımlar. Sprint 4C.3 itibarıyla `POST /auth/register`, `POST /auth/login` ve `POST /auth/refresh` uygulanmıştır; diğer endpointler sonraki alt sprintler için sözleşme durumundadır.
 
 ## Ortak kurallar
 
@@ -63,7 +63,7 @@ Hata mesajları kullanıcı varlığı, e-posta doğrulama durumu veya parola ya
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `POST /auth/register` | Public | `{ email, password, displayName, locale?, timezone? }` | `{ status: "accepted", message }` | 202, 400, 429 | `AUTH_VALIDATION_FAILED`, `AUTH_RATE_LIMITED` | Register limiter boundary; Redis limit Sprint 4F | Yeni kullanıcı için `AUTH_REGISTERED` | Her zaman generic 202; e-posta zaten kayıtlıysa API açıklamaz ve kullanıcı verisi dönmez. |
 | `POST /auth/login` | Public | `{ email, password, context? }` | `{ accessToken, tokenType, expiresIn, user }` + refresh cookie | 200, 400, 401, 429 | `AUTH_INVALID_CREDENTIALS`, `AUTH_RATE_LIMITED` | Login limiter boundary; Redis limit Sprint 4F | `AUTH_LOGIN_SUCCEEDED` veya `AUTH_LOGIN_FAILED` | Aynı credential tekrar yeni session oluşturur; rate limit korur. |
-| `POST /auth/refresh` | Refresh cookie | Empty body | `{ accessToken, expiresIn, user: PublicUser }` + rotated refresh cookie | 200, 401, 409, 429 | `AUTH_REFRESH_INVALID`, `AUTH_REFRESH_CONFLICT`, `AUTH_SESSION_REVOKED`, `AUTH_RATE_LIMITED` | Session + IP | `AUTH_REFRESH_ROTATED`, reuse varsa `AUTH_REFRESH_REUSE_DETECTED` | Token tek kullanımlıdır; kısa parallel yarışta 409 conflict döner, gerçek replay session revoke eder. |
+| `POST /auth/refresh` | Refresh cookie | Empty body | `{ accessToken, tokenType, expiresIn }` + rotated refresh cookie | 200, 400, 401, 409, 429 | `AUTH_REFRESH_INVALID_BODY`, `AUTH_REFRESH_INVALID`, `AUTH_REFRESH_CONFLICT`, `AUTH_REFRESH_REUSED`, `AUTH_RATE_LIMITED` | Refresh limiter boundary; Redis limit Sprint 4F | `AUTH_REFRESH_SUCCEEDED`, `AUTH_REFRESH_FAILED`, replay varsa `AUTH_REFRESH_REUSED` | Token tek kullanımlıdır; kısa parallel yarışta 409 conflict döner, gerçek replay session revoke eder. |
 | `POST /auth/logout` | Access token veya refresh cookie | Empty body | Empty | 204, 401 | `AUTH_UNAUTHORIZED` | User + IP | `AUTH_LOGOUT` | Idempotent; zaten çıkılmışsa 204 dönebilir. |
 | `POST /auth/logout-all` | Access token | Empty body | Empty | 204, 401 | `AUTH_UNAUTHORIZED` | User + IP | `AUTH_LOGOUT_ALL` | Idempotent; active session yoksa 204. |
 | `POST /auth/verify-email` | Public | `{ token }` | `{ status: "verified" }` | 200, 400, 410, 429 | `AUTH_VERIFICATION_INVALID`, `AUTH_VERIFICATION_EXPIRED`, `AUTH_RATE_LIMITED` | Token hash + IP | `AUTH_EMAIL_VERIFIED`, failed | Kullanılmış token tekrar geldiğinde güvenli genel sonuç dönebilir. |
@@ -160,6 +160,57 @@ Tüm credential failure durumları aynı dış response ile döner:
 
 Aşağıdaki durumlar dışarıda ayrıştırılmaz: kullanıcı bulunamadı, parola yanlış, hesap devre dışı, e-posta doğrulanmamış. Bu nedenle doğrulanmamış e-posta için ayrı `AUTH_EMAIL_NOT_VERIFIED` response kullanılmaz.
 
+## Uygulanan refresh sözleşmesi
+
+`POST /auth/refresh` request body kabul etmez. Refresh token yalnız auth config ile belirlenen cookie adından okunur:
+
+- Development varsayılanı: `refresh_token`.
+- Production: `__Host-refresh_token`.
+
+Body, query veya header içinden refresh token kabul edilmez. Body boş olmalıdır. Body herhangi bir JSON alanı, nested object veya array içerirse 400 `AUTH_REFRESH_INVALID_BODY` döner; cookie yoksa 401 `AUTH_REFRESH_INVALID` döner. Primitive veya bozuk JSON payload'lar mevcut JSON parser davranışıyla güvenli 400 olarak reddedilir ve refresh akışına girmez.
+
+Body dolu olduğunda standart auth hata zarfı:
+
+```json
+{
+  "error": {
+    "code": "AUTH_REFRESH_INVALID_BODY",
+    "message": "Refresh isteğinin gövdesi boş olmalıdır.",
+    "requestId": "req_..."
+  }
+}
+```
+
+Bu response raw body, refresh token, cookie değeri veya veritabanı detayı içermez.
+
+Başarılı response:
+
+```json
+{
+  "accessToken": "...",
+  "tokenType": "Bearer",
+  "expiresIn": 900
+}
+```
+
+Başarılı refresh transaction içinde eski refresh token `usedAt` alır, yeni child token yalnız hash olarak saklanır, session `lastSeenAt` güncellenir ve yeni refresh token aynı cookie adıyla overwrite edilir. Access token role claim'i yalnız DB'deki `User.role` değerinden üretilir. Refresh akışı `LoginAttempt` yazmaz.
+
+Kısa grace window içinde aynı parent token tekrar gelirse:
+
+```json
+{
+  "error": {
+    "code": "AUTH_REFRESH_CONFLICT",
+    "message": "Oturum yenileme isteği çakıştı. Lütfen tekrar deneyin.",
+    "requestId": "req_..."
+  }
+}
+```
+
+Bu durumda yeni child token üretilmez, session revoke edilmez ve cookie temizlenmez.
+
+Grace window dışındaki replay `AUTH_REFRESH_REUSED` ile 401 döner; ilgili session ve refresh token family revoke edilir ve mevcut refresh cookie temizlenir. Invalid, expired, revoked token, expired session ve disabled user durumları dışarıya güvenli `AUTH_REFRESH_INVALID` olarak döner; iç neden ayrıştırılmaz.
+
 ## Refresh conflict davranışı
 
 `AUTH_REFRESH_CONFLICT`, yalnız kısa parallel refresh yarışını ifade eder; e-posta enumeration ile ilgisi yoktur.
@@ -212,8 +263,10 @@ Raw IP ve tam user-agent response içinde dönmez.
 | `AUTH_UNAUTHORIZED` | Access token eksik, geçersiz, süresi dolmuş veya session-active kontrolünden geçememiş. |
 | `AUTH_FORBIDDEN` | Kullanıcı authenticated ve session active ancak role veya policy yetersiz. |
 | `AUTH_SESSION_REVOKED` | Session iptal edilmiş veya geçersiz. |
+| `AUTH_REFRESH_INVALID_BODY` | Refresh isteği boş body dışında payload içerdiği için reddedildi. |
 | `AUTH_REFRESH_INVALID` | Refresh cookie yok, hash eşleşmedi, süresi doldu veya revoked. |
 | `AUTH_REFRESH_CONFLICT` | Kısa parallel refresh yarışında ikinci istek kontrollü reddedildi. |
+| `AUTH_REFRESH_REUSED` | Grace window dışındaki refresh replay tespit edildi; session/token family revoke edilir. |
 | `AUTH_RATE_LIMITED` | IP, user, session veya emailHash limitine takıldı. |
 | `AUTH_PASSWORD_POLICY_FAILED` | Yeni parola policy'yi karşılamıyor. |
 | `AUTH_VERIFICATION_INVALID` | E-posta doğrulama tokenı geçersiz. |

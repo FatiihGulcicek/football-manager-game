@@ -151,6 +151,9 @@ Maksimum uzunluk, password hashing kaynak tüketimini kontrol altında tutmak i�
 - Transaction başarısızsa eski token used durumda kalmamalıdır.
 - Aynı parent tokenın iki geçerli child üretmesine izin verilmez.
 - Reuse detection token family ve session revoke ile sonuçlanır.
+- Sprint 4C.3 uygulamasında `POST /auth/refresh` tokenı yalnız HttpOnly cookie'den okur; body, query ve header içinden refresh token kabul edilmez.
+- Refresh response body yalnız yeni access tokenı içerir; yeni raw refresh token yalnız cookie overwrite işleminde kullanılır.
+- Refresh işlemi `LoginAttempt` yazmaz; audit metadata allowlist `context`, `reason`, `sessionId` ile sınırlıdır.
 
 Concurrent refresh için MVP kararı:
 
@@ -158,6 +161,7 @@ Concurrent refresh için MVP kararı:
 - Session otomatik revoke edilmez.
 - Grace window küçük, sınırlı ve config üzerinden yönetilir.
 - Grace window dışındaki tekrar kullanım gerçek replay kabul edilir ve session revoke edilir.
+- Conflict durumunda cookie temizlenmez; replay/invalid durumlarında mevcut refresh cookie temizlenebilir.
 
 ## Rate limit ve brute-force koruması
 

@@ -12,6 +12,7 @@ import { RegisterRateLimitService } from '../services/register-rate-limit.servic
 import { RegisterService } from '../services/register.service';
 import { TokenHashService } from '../services/token-hash.service';
 import { LoginService } from '../services/login.service';
+import { RefreshService } from '../services/refresh.service';
 import { AuthController } from './auth.controller';
 
 const config: AuthConfig = {
@@ -56,6 +57,12 @@ describe('AuthController register', () => {
           provide: LoginService,
           useValue: {
             login: vi.fn()
+          }
+        },
+        {
+          provide: RefreshService,
+          useValue: {
+            refresh: vi.fn()
           }
         },
         {
