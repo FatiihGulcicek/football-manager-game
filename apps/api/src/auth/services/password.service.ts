@@ -1,6 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import * as argon2 from 'argon2';
-import { authConfig, AuthConfig } from '../../config/auth.config';
+import { AUTH_CONFIG, authConfig, AuthConfig } from '../../config/auth.config';
 
 export class PasswordValidationError extends Error {
   constructor(message: string) {
@@ -11,7 +11,7 @@ export class PasswordValidationError extends Error {
 
 @Injectable()
 export class PasswordService {
-  constructor(private readonly config: AuthConfig = authConfig) {}
+  constructor(@Optional() @Inject(AUTH_CONFIG) private readonly config: AuthConfig = authConfig) {}
 
   async hashPassword(password: string): Promise<string> {
     const normalizedPassword = this.validatePassword(password);

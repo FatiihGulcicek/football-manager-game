@@ -1,6 +1,6 @@
 # Authentication API Contracts
 
-Bu belge API sözleşmesini tasarlar. Bu sprintte endpoint kodu yazılmaz.
+Bu belge authentication API sözleşmelerini tanımlar. Sprint 4C.1 itibarıyla yalnız `POST /auth/register` uygulanmıştır; diğer endpointler sonraki alt sprintler için sözleşme durumundadır.
 
 ## Ortak kurallar
 
@@ -52,7 +52,7 @@ Hata mesajları kullanıcı varlığı, e-posta doğrulama durumu veya parola ya
 
 | Endpoint | Auth | Request DTO | Response DTO | Durum kodları | Güvenli hata kodları | Rate limit | Audit log | Idempotency |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `POST /auth/register` | Public | `{ email, password, displayName? }` | `{ status: "accepted" }` | 202, 400, 429 | `AUTH_VALIDATION_FAILED`, `AUTH_RATE_LIMITED` | Normalize IP + emailHash | `AUTH_REGISTER_REQUESTED` | Her zaman generic 202; e-posta zaten kayıtlıysa API açıklamaz, gerekirse mevcut kullanıcıya güvenli bilgilendirme e-postası gönderilir. |
+| `POST /auth/register` | Public | `{ email, password, displayName, locale?, timezone? }` | `{ status: "accepted", message }` | 202, 400, 429 | `AUTH_VALIDATION_FAILED`, `AUTH_RATE_LIMITED` | Register limiter boundary; Redis limit Sprint 4F | Yeni kullanıcı için `AUTH_REGISTERED` | Her zaman generic 202; e-posta zaten kayıtlıysa API açıklamaz ve kullanıcı verisi dönmez. |
 | `POST /auth/login` | Public | `{ email, password, deviceName? }` | `{ accessToken, expiresIn, user: PublicUser }` + refresh cookie | 200, 400, 401, 429 | `AUTH_INVALID_CREDENTIALS`, `AUTH_ACCOUNT_UNAVAILABLE`, `AUTH_RATE_LIMITED` | IP + emailHash + userId | success/failure login; `LoginAttempt.context` route/origin/app bağlamından server tarafında türetilir | Aynı credential tekrar yeni session oluşturur; rate limit korur. |
 | `POST /auth/refresh` | Refresh cookie | Empty body | `{ accessToken, expiresIn, user: PublicUser }` + rotated refresh cookie | 200, 401, 409, 429 | `AUTH_REFRESH_INVALID`, `AUTH_REFRESH_CONFLICT`, `AUTH_SESSION_REVOKED`, `AUTH_RATE_LIMITED` | Session + IP | `AUTH_REFRESH_ROTATED`, reuse varsa `AUTH_REFRESH_REUSE_DETECTED` | Token tek kullanımlıdır; kısa parallel yarışta 409 conflict döner, gerçek replay session revoke eder. |
 | `POST /auth/logout` | Access token veya refresh cookie | Empty body | Empty | 204, 401 | `AUTH_UNAUTHORIZED` | User + IP | `AUTH_LOGOUT` | Idempotent; zaten çıkılmışsa 204 dönebilir. |
@@ -65,6 +65,38 @@ Hata mesajları kullanıcı varlığı, e-posta doğrulama durumu veya parola ya
 | `GET /auth/me` | Access token + active session | None | `{ user: PublicUser, session: CurrentSession }` | 200, 401 | `AUTH_UNAUTHORIZED`, `AUTH_SESSION_REVOKED` | Normal API limit | Opsiyonel `AUTH_ME_READ` metric | Read-only. |
 | `GET /auth/sessions` | Access token + active session | None | `{ sessions: SessionSummary[] }` | 200, 401 | `AUTH_UNAUTHORIZED` | User limit | `AUTH_SESSIONS_LISTED` opsiyonel | Read-only. |
 | `DELETE /auth/sessions/:sessionId` | Access token + active session | Path `sessionId` | Empty | 204, 401, 404 | `AUTH_UNAUTHORIZED`, `AUTH_SESSION_NOT_FOUND` | User limit | `AUTH_SESSION_REVOKED` | Idempotent; kullanıcıya ait olmayan veya yok session için 404. |
+
+## Uygulanan register sözleşmesi
+
+`POST /auth/register` şu body alanlarını kabul eder:
+
+```json
+{
+  "email": "user@example.invalid",
+  "password": "TestOnlyPass123",
+  "displayName": "Fatih Manager",
+  "locale": "tr-TR",
+  "timezone": "Europe/Istanbul"
+}
+```
+
+- `email` trim/lowercase normalize edilir ve maksimum 254 karakterdir.
+- `password` `PasswordService` politikasıyla doğrulanır ve Argon2id ile hashlenir.
+- `displayName` trim edilir, 2-40 karakter arasında olmalıdır.
+- `locale` opsiyoneldir, varsayılan `tr-TR`, maksimum 20 karakterdir.
+- `timezone` opsiyoneldir, varsayılan `Europe/Istanbul`, maksimum 64 karakterdir.
+- `role` veya başka desteklenmeyen client alanları kabul edilmez.
+
+Başarılı veya duplicate kabul edilen response:
+
+```json
+{
+  "status": "accepted",
+  "message": "Kayıt isteğiniz alındı. Uygunsa e-posta adresinize doğrulama bağlantısı gönderilecektir."
+}
+```
+
+Yeni kullanıcı için transaction içinde `User`, `ManagerProfile`, `EmailVerificationToken` ve `AuditLog` oluşturulur. Register akışı bu sprintte `UserSession`, `RefreshToken`, `LoginAttempt`, `Club` veya gerçek e-posta gönderimi oluşturmaz.
 
 ## Refresh conflict davranışı
 
@@ -83,7 +115,7 @@ Hata mesajları kullanıcı varlığı, e-posta doğrulama durumu veya parola ya
 ```json
 {
   "id": "uuid",
-  "email": "user@example.com",
+  "email": "user@example.invalid",
   "role": "USER",
   "emailVerified": true,
   "isActive": true
