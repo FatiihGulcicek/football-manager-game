@@ -1,0 +1,16 @@
+FROM node:20-alpine AS base
+WORKDIR /workspace
+
+COPY package.json pnpm-workspace.yaml ./
+COPY apps/api/package.json ./apps/api/
+RUN npm install -g pnpm@8.0.0
+RUN pnpm install --frozen-lockfile
+
+COPY . .
+WORKDIR /workspace/apps/api
+RUN pnpm build
+
+FROM node:20-alpine AS runtime
+WORKDIR /workspace
+COPY --from=base /workspace/apps/api/dist ./apps/api/dist
+CMD ["node", "apps/api/dist/index.js"]
