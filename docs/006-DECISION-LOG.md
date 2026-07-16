@@ -65,3 +65,35 @@ Bu dosya ADR benzeri karar kayıtlarını tutar. Kararlar değişirse yeni karar
 - Bağlam: Görsel varlıklar telif ve marka riski taşır.
 - Karar: Lisans doğrulanmadan gerçek arma, forma, fotoğraf ve marka varlığı kullanılmayacak.
 - Sonuçlar: Kurgusal veya özgün varlık üretimi gerekir; marka riski düşer.
+
+## DEC-009: Prisma şeması packages/database içinde tek kaynak olacak
+
+- Tarih: 2026-07-16
+- Durum: Kabul edildi
+- Bağlam: Prisma şemasının birden fazla uygulama altında çoğalması migration ve client üretiminde tutarsızlık yaratır.
+- Karar: Prisma şeması, migration dosyaları ve Prisma Client export noktası `packages/database` altında tutulacak.
+- Sonuçlar: API veritabanına `@football-manager/database` üzerinden erişir; schema değişiklikleri tek pakette izlenir.
+
+## DEC-010: PostgreSQL ana kalıcı veri kaynağıdır
+
+- Tarih: 2026-07-16
+- Durum: Kabul edildi
+- Bağlam: Kullanıcı, menajer, kulüp ve sezon verileri ilişkisel bütünlük gerektirir.
+- Karar: Kalıcı oyun ve kimlik verileri PostgreSQL içinde saklanacak.
+- Sonuçlar: Migration disiplini zorunludur; para alanlarında `Decimal` kullanılacak ve tarih verileri UTC saklanacaktır.
+
+## DEC-011: Redis cache, geçici durum ve ileride job queue için kullanılacaktır
+
+- Tarih: 2026-07-16
+- Durum: Kabul edildi
+- Bağlam: Bazı veriler hızlı erişim, geçici durum veya arka plan iş kuyruğu gerektirecektir.
+- Karar: Redis kalıcı ana veri kaynağı olmayacak; cache, geçici durum, rate limit ve ileride job queue altyapısı için kullanılacak.
+- Sonuçlar: Redis kaybı ana veriyi kaybettirmez; health endpoint Redis durumunu ayrı dependency olarak raporlar.
+
+## DEC-012: İlk kimlik modellerinde cascade delete kullanılacak
+
+- Tarih: 2026-07-16
+- Durum: Kabul edildi
+- Bağlam: Sprint 3 modellerinde `User`, `ManagerProfile` ve `Club` arasında bire bir sahiplik ilişkisi vardır.
+- Karar: `User` silindiğinde bağlı `ManagerProfile` ve `Club` kayıtları `onDelete: Cascade` ile silinecek.
+- Sonuçlar: Geliştirme verisi temiz kalır ve yetim kayıt oluşmaz; üretim öncesinde hesap kapatma, audit ve veri saklama politikaları ayrıca değerlendirilecektir.
