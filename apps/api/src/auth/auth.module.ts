@@ -3,6 +3,8 @@ import { AUTH_CONFIG, authConfig } from '../config/auth.config';
 import { DatabaseModule } from '../database/database.module';
 import { AuthController } from './controllers/auth.controller';
 import { AccessTokenService } from './services/access-token.service';
+import { LoginRateLimitService } from './services/login-rate-limit.service';
+import { LoginService } from './services/login.service';
 import { PasswordService } from './services/password.service';
 import { RefreshTokenService } from './services/refresh-token.service';
 import { RegisterRateLimitService } from './services/register-rate-limit.service';
@@ -23,6 +25,8 @@ import { TokenHashService } from './services/token-hash.service';
     AccessTokenService,
     SessionService,
     RefreshTokenService,
+    LoginRateLimitService,
+    LoginService,
     RegisterRateLimitService,
     RegisterService
   ],
@@ -32,6 +36,8 @@ import { TokenHashService } from './services/token-hash.service';
     AccessTokenService,
     SessionService,
     RefreshTokenService,
+    LoginRateLimitService,
+    LoginService,
     RegisterRateLimitService,
     RegisterService
   ]

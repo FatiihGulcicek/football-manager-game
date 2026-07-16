@@ -1,4 +1,5 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
+import { Prisma } from '@football-manager/database';
 import { PrismaService } from '../../database/prisma.service';
 import { AUTH_CONFIG, authConfig, AuthConfig } from '../../config/auth.config';
 import { SessionService } from './session.service';
@@ -44,11 +45,16 @@ export class RefreshTokenService {
     private readonly config: AuthConfig = authConfig
   ) {}
 
-  async issueInitialToken(sessionId: string, expiresAt: Date): Promise<IssuedRefreshToken> {
+  async issueInitialToken(
+    sessionId: string,
+    expiresAt: Date,
+    transaction?: Prisma.TransactionClient
+  ): Promise<IssuedRefreshToken> {
     const token = this.tokenHashService.generateOpaqueToken();
     const tokenHash = this.tokenHashService.hashToken(token);
+    const client = transaction ?? this.prisma;
 
-    await this.prisma.refreshToken.create({
+    await client.refreshToken.create({
       data: {
         sessionId,
         tokenHash,

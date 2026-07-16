@@ -3,7 +3,7 @@ import { Test } from '@nestjs/testing';
 import { UserRole } from '@football-manager/database';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AuthConfig } from '../../config/auth.config';
+import { AUTH_CONFIG, AuthConfig } from '../../config/auth.config';
 import { PrismaService } from '../../database/prisma.service';
 import { AUTH_AUDIT_EVENTS } from '../constants/auth-audit-events';
 import { REGISTER_ACCEPTED_RESPONSE } from '../dto/register.dto';
@@ -11,6 +11,7 @@ import { PasswordService } from '../services/password.service';
 import { RegisterRateLimitService } from '../services/register-rate-limit.service';
 import { RegisterService } from '../services/register.service';
 import { TokenHashService } from '../services/token-hash.service';
+import { LoginService } from '../services/login.service';
 import { AuthController } from './auth.controller';
 
 const config: AuthConfig = {
@@ -47,6 +48,16 @@ describe('AuthController register', () => {
       providers: [
         RegisterService,
         RegisterRateLimitService,
+        {
+          provide: AUTH_CONFIG,
+          useValue: config
+        },
+        {
+          provide: LoginService,
+          useValue: {
+            login: vi.fn()
+          }
+        },
         {
           provide: PrismaService,
           useValue: database.prisma

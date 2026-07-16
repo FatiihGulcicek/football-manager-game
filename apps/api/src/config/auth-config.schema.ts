@@ -1,3 +1,5 @@
+import { generateKeyPairSync, randomBytes } from 'crypto';
+
 export type AuthCookieSameSite = 'lax' | 'strict' | 'none';
 
 export type AuthConfig = {
@@ -26,13 +28,21 @@ export type AuthConfig = {
 
 type Environment = Record<string, string | undefined>;
 
-const DEFAULT_DEV_PRIVATE_KEY = 'development-only-private-key-placeholder';
-const DEFAULT_DEV_PUBLIC_KEYS = { development: 'development-only-public-key-placeholder' };
-const DEFAULT_DEV_TOKEN_PEPPER = 'development-only-token-pepper';
+const DEVELOPMENT_KID = 'development';
+const LEGACY_DEV_PRIVATE_KEY_PLACEHOLDER = 'development-only-private-key-placeholder';
+const LEGACY_DEV_PUBLIC_KEY_PLACEHOLDER = 'development-only-public-key-placeholder';
+const LEGACY_DEV_TOKEN_PEPPER_PLACEHOLDER = 'development-only-token-pepper';
+
+let developmentDefaults: {
+  jwtPrivateKey: string;
+  jwtPublicKeys: Record<string, string>;
+  tokenPepper: string;
+} | null = null;
 
 export function loadAuthConfig(env: Environment = process.env): AuthConfig {
   const nodeEnv = env.NODE_ENV ?? 'development';
   const isProduction = nodeEnv === 'production';
+  const devDefaults = isProduction ? undefined : getDevelopmentDefaults();
 
   const config: AuthConfig = {
     accessTokenTtlSeconds: readPositiveInteger(env, 'AUTH_ACCESS_TOKEN_TTL_SECONDS', 900),
@@ -42,14 +52,14 @@ export function loadAuthConfig(env: Environment = process.env): AuthConfig {
     refreshGraceSeconds: readNonNegativeInteger(env, 'AUTH_REFRESH_GRACE_SECONDS', 5),
     jwtIssuer: readString(env, 'JWT_ISSUER', 'football-manager-auth'),
     jwtAudience: readString(env, 'JWT_AUDIENCE', 'football-manager-api'),
-    jwtActiveKid: readString(env, 'JWT_ACTIVE_KID', isProduction ? undefined : 'development'),
-    jwtPrivateKey: readString(env, 'JWT_PRIVATE_KEY', isProduction ? undefined : DEFAULT_DEV_PRIVATE_KEY),
+    jwtActiveKid: readString(env, 'JWT_ACTIVE_KID', isProduction ? undefined : DEVELOPMENT_KID),
+    jwtPrivateKey: readString(env, 'JWT_PRIVATE_KEY', isProduction ? undefined : devDefaults?.jwtPrivateKey),
     jwtPublicKeys: readJsonObject(
       env,
       'JWT_PUBLIC_KEYS_JSON',
-      isProduction ? undefined : DEFAULT_DEV_PUBLIC_KEYS
+      isProduction ? undefined : devDefaults?.jwtPublicKeys
     ),
-    tokenPepper: readString(env, 'AUTH_TOKEN_PEPPER', isProduction ? undefined : DEFAULT_DEV_TOKEN_PEPPER),
+    tokenPepper: readString(env, 'AUTH_TOKEN_PEPPER', isProduction ? undefined : devDefaults?.tokenPepper),
     cookieName: readString(env, 'AUTH_COOKIE_NAME', isProduction ? undefined : 'refresh_token'),
     cookieSecure: readBoolean(env, 'AUTH_COOKIE_SECURE', isProduction),
     cookieSameSite: readSameSite(env, 'AUTH_COOKIE_SAME_SITE', 'lax'),
@@ -104,17 +114,47 @@ export function validateAuthConfig(config: AuthConfig, isProduction: boolean): v
     throw new Error('AUTH_COOKIE_SAME_SITE must be Lax in production');
   }
 
-  if (config.jwtPrivateKey === DEFAULT_DEV_PRIVATE_KEY) {
+  if (config.jwtPrivateKey === LEGACY_DEV_PRIVATE_KEY_PLACEHOLDER) {
     throw new Error('JWT_PRIVATE_KEY must be configured in production');
   }
 
-  if (config.jwtPublicKeys[config.jwtActiveKid] === DEFAULT_DEV_PUBLIC_KEYS.development) {
+  if (Object.values(config.jwtPublicKeys).includes(LEGACY_DEV_PUBLIC_KEY_PLACEHOLDER)) {
     throw new Error('JWT_PUBLIC_KEYS_JSON must be configured in production');
   }
 
-  if (config.tokenPepper === DEFAULT_DEV_TOKEN_PEPPER) {
+  if (config.tokenPepper === LEGACY_DEV_TOKEN_PEPPER_PLACEHOLDER) {
     throw new Error('AUTH_TOKEN_PEPPER must be configured in production');
   }
+}
+
+function getDevelopmentDefaults(): {
+  jwtPrivateKey: string;
+  jwtPublicKeys: Record<string, string>;
+  tokenPepper: string;
+} {
+  if (!developmentDefaults) {
+    const keyPair = generateKeyPairSync('ec', {
+      namedCurve: 'P-256',
+      privateKeyEncoding: {
+        type: 'pkcs8',
+        format: 'pem'
+      },
+      publicKeyEncoding: {
+        type: 'spki',
+        format: 'pem'
+      }
+    });
+
+    developmentDefaults = {
+      jwtPrivateKey: keyPair.privateKey,
+      jwtPublicKeys: {
+        [DEVELOPMENT_KID]: keyPair.publicKey
+      },
+      tokenPepper: randomBytes(32).toString('base64url')
+    };
+  }
+
+  return developmentDefaults;
 }
 
 function readString(env: Environment, key: string, fallback?: string): string {

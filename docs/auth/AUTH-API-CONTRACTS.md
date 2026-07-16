@@ -1,6 +1,6 @@
 # Authentication API Contracts
 
-Bu belge authentication API sözleşmelerini tanımlar. Sprint 4C.1 itibarıyla yalnız `POST /auth/register` uygulanmıştır; diğer endpointler sonraki alt sprintler için sözleşme durumundadır.
+Bu belge authentication API sözleşmelerini tanımlar. Sprint 4C.2 itibarıyla `POST /auth/register` ve `POST /auth/login` uygulanmıştır; diğer endpointler sonraki alt sprintler için sözleşme durumundadır.
 
 ## Ortak kurallar
 
@@ -53,7 +53,7 @@ Hata mesajları kullanıcı varlığı, e-posta doğrulama durumu veya parola ya
 | Endpoint | Auth | Request DTO | Response DTO | Durum kodları | Güvenli hata kodları | Rate limit | Audit log | Idempotency |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `POST /auth/register` | Public | `{ email, password, displayName, locale?, timezone? }` | `{ status: "accepted", message }` | 202, 400, 429 | `AUTH_VALIDATION_FAILED`, `AUTH_RATE_LIMITED` | Register limiter boundary; Redis limit Sprint 4F | Yeni kullanıcı için `AUTH_REGISTERED` | Her zaman generic 202; e-posta zaten kayıtlıysa API açıklamaz ve kullanıcı verisi dönmez. |
-| `POST /auth/login` | Public | `{ email, password, deviceName? }` | `{ accessToken, expiresIn, user: PublicUser }` + refresh cookie | 200, 400, 401, 429 | `AUTH_INVALID_CREDENTIALS`, `AUTH_ACCOUNT_UNAVAILABLE`, `AUTH_RATE_LIMITED` | IP + emailHash + userId | success/failure login; `LoginAttempt.context` route/origin/app bağlamından server tarafında türetilir | Aynı credential tekrar yeni session oluşturur; rate limit korur. |
+| `POST /auth/login` | Public | `{ email, password, context? }` | `{ accessToken, tokenType, expiresIn, user }` + refresh cookie | 200, 400, 401, 429 | `AUTH_INVALID_CREDENTIALS`, `AUTH_RATE_LIMITED` | Login limiter boundary; Redis limit Sprint 4F | `AUTH_LOGIN_SUCCEEDED` veya `AUTH_LOGIN_FAILED` | Aynı credential tekrar yeni session oluşturur; rate limit korur. |
 | `POST /auth/refresh` | Refresh cookie | Empty body | `{ accessToken, expiresIn, user: PublicUser }` + rotated refresh cookie | 200, 401, 409, 429 | `AUTH_REFRESH_INVALID`, `AUTH_REFRESH_CONFLICT`, `AUTH_SESSION_REVOKED`, `AUTH_RATE_LIMITED` | Session + IP | `AUTH_REFRESH_ROTATED`, reuse varsa `AUTH_REFRESH_REUSE_DETECTED` | Token tek kullanımlıdır; kısa parallel yarışta 409 conflict döner, gerçek replay session revoke eder. |
 | `POST /auth/logout` | Access token veya refresh cookie | Empty body | Empty | 204, 401 | `AUTH_UNAUTHORIZED` | User + IP | `AUTH_LOGOUT` | Idempotent; zaten çıkılmışsa 204 dönebilir. |
 | `POST /auth/logout-all` | Access token | Empty body | Empty | 204, 401 | `AUTH_UNAUTHORIZED` | User + IP | `AUTH_LOGOUT_ALL` | Idempotent; active session yoksa 204. |
@@ -97,6 +97,57 @@ Başarılı veya duplicate kabul edilen response:
 ```
 
 Yeni kullanıcı için transaction içinde `User`, `ManagerProfile`, `EmailVerificationToken` ve `AuditLog` oluşturulur. Register akışı bu sprintte `UserSession`, `RefreshToken`, `LoginAttempt`, `Club` veya gerçek e-posta gönderimi oluşturmaz.
+
+## Uygulanan login sözleşmesi
+
+`POST /auth/login` şu body alanlarını kabul eder:
+
+```json
+{
+  "email": "user@example.invalid",
+  "password": "TestOnlyPass123",
+  "context": "WEB"
+}
+```
+
+- `email` trim/lowercase normalize edilir ve maksimum 254 karakterdir.
+- `password` string olmalı, maksimum 128 karakterdir; null byte ve sakıncalı kontrol karakterleri reddedilir.
+- `context` opsiyoneldir; yalnız `WEB` veya `ADMIN` kabul edilir, varsayılan `WEB` olur.
+- `role`, `userId`, `sessionId`, `isActive` veya başka client controlled auth alanları kabul edilmez.
+
+Başarılı response:
+
+```json
+{
+  "accessToken": "...",
+  "tokenType": "Bearer",
+  "expiresIn": 900,
+  "user": {
+    "id": "uuid",
+    "email": "user@example.invalid",
+    "role": "USER",
+    "managerProfile": {
+      "displayName": "Manager"
+    }
+  }
+}
+```
+
+Refresh token response body içinde dönmez; yalnız HttpOnly refresh cookie ile taşınır. Başarılı login transaction içinde `UserSession`, ilk `RefreshToken`, `LoginAttempt`, `AuditLog` ve `User.lastLoginAt` yazar.
+
+Tüm credential failure durumları aynı dış response ile döner:
+
+```json
+{
+  "error": {
+    "code": "AUTH_INVALID_CREDENTIALS",
+    "message": "E-posta veya şifre hatalı.",
+    "requestId": "req_..."
+  }
+}
+```
+
+Aşağıdaki durumlar dışarıda ayrıştırılmaz: kullanıcı bulunamadı, parola yanlış, hesap devre dışı, e-posta doğrulanmamış. Bu nedenle doğrulanmamış e-posta için ayrı `AUTH_EMAIL_NOT_VERIFIED` response kullanılmaz.
 
 ## Refresh conflict davranışı
 
