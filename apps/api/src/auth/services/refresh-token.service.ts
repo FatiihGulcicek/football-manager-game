@@ -1,6 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
-import { authConfig, AuthConfig } from '../../config/auth.config';
+import { AUTH_CONFIG, authConfig, AuthConfig } from '../../config/auth.config';
 import { SessionService } from './session.service';
 import { TokenHashService } from './token-hash.service';
 
@@ -34,9 +34,13 @@ export type IssuedRefreshToken = {
 @Injectable()
 export class RefreshTokenService {
   constructor(
+    @Inject(PrismaService)
     private readonly prisma: PrismaService,
+    @Inject(TokenHashService)
     private readonly tokenHashService: TokenHashService,
+    @Inject(SessionService)
     private readonly sessionService: SessionService,
+    @Optional() @Inject(AUTH_CONFIG)
     private readonly config: AuthConfig = authConfig
   ) {}
 

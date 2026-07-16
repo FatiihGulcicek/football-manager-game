@@ -1,8 +1,8 @@
 # Authentication Design
 
-Bu klasör, Sprint 4A kapsamında authentication sisteminin teknik tasarımını tutar.
+Bu klasör authentication sisteminin teknik tasarımını ve uygulama ilerleme notlarını tutar.
 
-Bu sprint yalnızca tasarım sprintidir. Auth modülü, endpoint, Prisma migration, paket kurulumu, UI veya gerçek secret değişikliği içermez.
+Sprint 4C.1 itibarıyla yalnız `POST /auth/register` uygulanmıştır. Login, refresh, logout, session yönetimi, e-posta gönderimi ve UI sonraki alt sprintlerin kapsamındadır.
 
 ## Belge haritası
 
@@ -32,7 +32,31 @@ Bu sprint yalnızca tasarım sprintidir. Auth modülü, endpoint, Prisma migrati
 
 ## Sınırlar
 
-- Bu belgeler Prisma şemasını değiştirmez.
-- Bu belgeler gerçek endpoint veya service kodu eklemez.
 - Bu belgeler `.env` veya secret değeri üretmez.
 - Bu belgeler oyun ekonomisi, maç motoru, kulüp veya para tablolarını değiştirmez.
+
+## Register manuel test örneği
+
+API local ortamda çalışırken PowerShell ile:
+
+```powershell
+$baseUrl = "http://localhost:4000"
+$payload = @{
+  email = "manual-register@example.invalid"
+  password = "TestOnlyPass123"
+  displayName = "Manual Manager"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post -Uri "$baseUrl/auth/register" -ContentType "application/json" -Body $payload
+Invoke-RestMethod -Method Post -Uri "$baseUrl/auth/register" -ContentType "application/json" -Body $payload
+
+$invalidEmail = @{
+  email = "not-an-email"
+  password = "TestOnlyPass123"
+  displayName = "Manual Manager"
+} | ConvertTo-Json
+
+Invoke-WebRequest -Method Post -Uri "$baseUrl/auth/register" -ContentType "application/json" -Body $invalidEmail
+```
+
+İlk iki isteğin aynı generic 202 response döndürmesi, geçersiz e-postanın 400 dönmesi beklenir.

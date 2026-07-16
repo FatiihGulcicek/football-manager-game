@@ -1,6 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { createPrivateKey, createPublicKey, sign, verify } from 'crypto';
-import { authConfig, AuthConfig } from '../../config/auth.config';
+import { AUTH_CONFIG, authConfig, AuthConfig } from '../../config/auth.config';
 
 type JwtHeader = {
   alg: 'ES256';
@@ -45,7 +45,7 @@ export class AccessTokenError extends Error {
 export class AccessTokenService {
   private readonly clockToleranceSeconds = 10;
 
-  constructor(private readonly config: AuthConfig = authConfig) {}
+  constructor(@Optional() @Inject(AUTH_CONFIG) private readonly config: AuthConfig = authConfig) {}
 
   signAccessToken(input: AccessTokenInput): string {
     const issuedAt = input.issuedAtSeconds ?? nowInSeconds();

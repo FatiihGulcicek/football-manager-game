@@ -1,13 +1,13 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
-import { authConfig, AuthConfig } from '../../config/auth.config';
+import { AUTH_CONFIG, authConfig, AuthConfig } from '../../config/auth.config';
 
 const TOKEN_BYTES = 32;
 const HASH_PREFIX = 'hmac-sha256';
 
 @Injectable()
 export class TokenHashService {
-  constructor(private readonly config: AuthConfig = authConfig) {}
+  constructor(@Optional() @Inject(AUTH_CONFIG) private readonly config: AuthConfig = authConfig) {}
 
   generateOpaqueToken(): string {
     return randomBytes(TOKEN_BYTES).toString('base64url');

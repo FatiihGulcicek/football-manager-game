@@ -33,6 +33,8 @@ Sprint 4B config kapsamı:
 
 ## Sprint 4C - Password, JWT, session, register ve login
 
+Durum: Kısmen tamamlandı. Sprint 4C.1 kapsamında yalnız `POST /auth/register` uygulandı; login, access token üretimi, refresh cookie üretimi ve session oluşturma sonraki 4C adımına bırakıldı.
+
 | Alan | Detay |
 | --- | --- |
 | Amaç | Parola hash/doğrulama, ES256 access JWT üretimi, session-active guard, register ve login akışlarını kurmak. |
@@ -40,6 +42,20 @@ Sprint 4B config kapsamı:
 | Test şartları | Password service, Unicode NFC validation, JWT `kid/iss/aud`, register 202, login success/failure, disabled user, session-active ve role kontrol testleri. |
 | Kabul kriterleri | Login access token ve refresh cookie üretir; role client inputundan alınmaz; invalid credentials güvenli döner; register account existence açıklamaz. |
 | Riskler | Enumeration sızıntısı, Argon2id parametrelerinin local/CI üzerinde fazla yavaş olması, ES256 key yönetiminin yanlış yapılandırılması. |
+
+Sprint 4C.1 tamamlananlar:
+
+- `POST /auth/register` endpointi 202 generic response dönecek şekilde eklendi.
+- Request DTO `email`, `password`, `displayName`, opsiyonel `locale` ve opsiyonel `timezone` alanlarıyla sınırlandı.
+- E-posta trim/lowercase normalize edilir; desteklenmeyen `role` gibi client alanları reddedilir.
+- Parola `PasswordService` üzerinden validate/hash edilir; raw parola response, log veya veritabanına yazılmaz.
+- Yeni kayıt transaction içinde `User`, `ManagerProfile`, `EmailVerificationToken` ve `AuditLog` oluşturur.
+- Kullanıcı rolü server tarafında daima `USER`; hesap `isActive=true`, `emailVerifiedAt=null` başlar.
+- E-posta doğrulama tokenı opaque üretilir, yalnız hash değeri saklanır; önceki unused verification tokenlar revoke edilir.
+- Duplicate e-posta ve unique constraint yarışı hesap varlığını açıklamayan aynı 202 response ile sonuçlanır.
+- Register akışı `LoginAttempt`, `UserSession`, `RefreshToken` veya `Club` oluşturmaz.
+- Rate limit için `RegisterRateLimitService` sınırı hazırlandı; Redis destekli gerçek limit Sprint 4F hardening kapsamındadır.
+- Unit ve HTTP integration testleri register davranışını gerçek e-posta gönderimi olmadan doğrular.
 
 ## Sprint 4D - Refresh rotation, logout ve session yönetimi
 
