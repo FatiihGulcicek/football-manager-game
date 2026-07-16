@@ -13,18 +13,29 @@ enum UserRole {
   SUPER_ADMIN
 }
 
+enum LoginContext {
+  WEB
+  ADMIN
+}
+
 model User {
-  id              String          @id @default(uuid())
-  email           String          @unique
-  passwordHash    String
-  role            UserRole        @default(USER)
-  isActive        Boolean         @default(true)
-  emailVerifiedAt DateTime?
-  lastLoginAt     DateTime?
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
-  managerProfile  ManagerProfile?
-  club            Club?
+  id                      String                   @id @default(uuid())
+  email                   String                   @unique
+  passwordHash            String
+  role                    UserRole                 @default(USER)
+  isActive                Boolean                  @default(true)
+  emailVerifiedAt         DateTime?
+  lastLoginAt             DateTime?
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  managerProfile          ManagerProfile?
+  club                    Club?
+  sessions                UserSession[]
+  emailVerificationTokens EmailVerificationToken[]
+  passwordResetTokens     PasswordResetToken[]
+  loginAttempts           LoginAttempt[]
+  auditLogsAsActor        AuditLog[]               @relation("AuditLogActor")
+  auditLogsAsTarget       AuditLog[]               @relation("AuditLogTarget")
 }
 
 model ManagerProfile {
@@ -53,4 +64,112 @@ model Club {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   owner           User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+}
+
+model UserSession {
+  id              String         @id @default(uuid())
+  userId          String
+  tokenFamilyId   String
+  deviceName      String?
+  deviceType      String?
+  browser         String?
+  operatingSystem String?
+  ipHash          String?
+  countryCode     String?
+  city            String?
+  userAgentHash   String?
+  lastSeenAt      DateTime
+  expiresAt       DateTime
+  revokedAt       DateTime?
+  revokeReason    String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokens   RefreshToken[]
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([revokedAt])
+}
+
+model RefreshToken {
+  id            String         @id @default(uuid())
+  sessionId     String
+  tokenHash     String         @unique
+  parentTokenId String?
+  expiresAt     DateTime
+  usedAt        DateTime?
+  revokedAt     DateTime?
+  createdAt     DateTime       @default(now())
+  session       UserSession    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  parentToken   RefreshToken?  @relation("RefreshTokenParent", fields: [parentTokenId], references: [id], onDelete: SetNull)
+  childTokens   RefreshToken[] @relation("RefreshTokenParent")
+
+  @@index([sessionId])
+  @@index([expiresAt])
+}
+
+model EmailVerificationToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model PasswordResetToken {
+  id              String    @id @default(uuid())
+  userId          String
+  tokenHash       String    @unique
+  expiresAt       DateTime
+  usedAt          DateTime?
+  revokedAt       DateTime?
+  requestedIpHash String?
+  createdAt       DateTime  @default(now())
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model LoginAttempt {
+  id            String       @id @default(uuid())
+  userId        String?
+  emailHash     String
+  success       Boolean
+  failureReason String?
+  ipHash        String
+  userAgentHash String?
+  context       LoginContext
+  createdAt     DateTime     @default(now())
+  user          User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([emailHash, createdAt])
+  @@index([ipHash, createdAt])
+  @@index([userId, createdAt])
+}
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  actorUserId  String?
+  targetUserId String?
+  action       String
+  entityType   String?
+  entityId     String?
+  metadata     Json?
+  ipHash       String?
+  createdAt    DateTime @default(now())
+  actor        User?    @relation("AuditLogActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  target       User?    @relation("AuditLogTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+
+  @@index([actorUserId])
+  @@index([targetUserId])
+  @@index([action])
+  @@index([createdAt])
 }
