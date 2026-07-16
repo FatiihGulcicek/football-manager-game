@@ -4,6 +4,8 @@ Bu plan Sprint 4A tasarımından sonra authentication geliştirmesini küçük v
 
 ## Sprint 4B - Auth veri modelleri ve config
 
+Durum: Tamamlandı.
+
 | Alan | Detay |
 | --- | --- |
 | Amaç | Auth veri modellerini Prisma'ya eklemek, migration üretmek, temel DTO ve config validation zeminini kurmak. |
@@ -11,6 +13,14 @@ Bu plan Sprint 4A tasarımından sonra authentication geliştirmesini küçük v
 | Test şartları | Prisma validate/generate, migration test DB'de uygulanabilirlik, config validation unit testleri. |
 | Kabul kriterleri | `UserSession`, `RefreshToken`, verification/reset token, `LoginAttempt`, `AuditLog` modelleri migration ile oluşur; `revokedAt`, onDelete ve index kararları uygulanır; secret değerler gerçek değildir. |
 | Riskler | Cascade/SetNull davranışının yanlış modellenmesi, config defaultlarının production için fazla gevşek kalması. |
+
+Tamamlananlar:
+
+- Auth Prisma modelleri, ilişkileri, indexleri ve migration eklendi.
+- Auth config validation dosyaları oluşturuldu.
+- Argon2id password service, opaque token hashing, ES256 access token service, session service ve refresh rotation foundation eklendi.
+- Unit testler production DB veya Redis'e bağlanmadan mock/fixture tabanlı yazıldı.
+- `.env.example` yalnız placeholder değerlerle güncellendi.
 
 Sprint 4B config kapsamı:
 
