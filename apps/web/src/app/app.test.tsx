@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { DashboardView } from '../features/dashboard/components/dashboard-view';
 import { MobileNavigation } from '../features/dashboard/components/mobile-navigation';
 import { Sidebar } from '../features/dashboard/components/sidebar';
 import { createDashboardViewModelFromClub } from '../features/dashboard/data/dashboard-data';
 import { emptyDashboard, mockDashboard } from '../features/dashboard/data/mock-dashboard';
+import RootLayout from './layout';
 
 describe('Dashboard foundation', () => {
   it('renders the core dashboard sections', () => {
@@ -77,5 +80,32 @@ describe('Dashboard foundation', () => {
 
   it('renders the dashboard on the server without window access', () => {
     expect(() => renderToStaticMarkup(<DashboardView viewModel={mockDashboard} />)).not.toThrow();
+  });
+
+  it('keeps the global dashboard stylesheet connected to the root layout', () => {
+    const html = renderToStaticMarkup(
+      <RootLayout>
+        <DashboardView viewModel={mockDashboard} />
+      </RootLayout>
+    );
+    const layoutSource = readFileSync(join(process.cwd(), 'src/app/layout.tsx'), 'utf8');
+
+    expect(layoutSource).toContain("import './globals.css'");
+    expect(html).toContain('class="dashboard-document"');
+    expect(html).toContain('class="dashboard-theme"');
+  });
+
+  it('keeps critical dashboard design tokens and shell selectors in globals.css', () => {
+    const css = readFileSync(join(process.cwd(), 'src/app/globals.css'), 'utf8');
+
+    expect(css).toContain('--color-bg-deep');
+    expect(css).toContain('--color-surface');
+    expect(css).toContain('--radius-panel');
+    expect(css).toContain('.dashboard-theme');
+    expect(css).toContain('.app-shell');
+    expect(css).toContain('.game-panel');
+    expect(css).toContain('.mobile-nav');
+    expect(css).toContain('.dashboard-grid > .game-panel:nth-child(2)');
+    expect(css).not.toMatch(/(^|\n)\.game-panel:nth-child/);
   });
 });

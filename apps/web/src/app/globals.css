@@ -43,12 +43,14 @@
   box-sizing: border-box;
 }
 
-html {
+html,
+.dashboard-document {
   min-width: 320px;
   background: var(--color-bg-deep);
 }
 
-body {
+body,
+.dashboard-theme {
   min-height: 100vh;
   margin: 0;
   overflow-x: hidden;
@@ -220,6 +222,7 @@ input:focus-visible {
 
 .app-frame {
   min-width: 0;
+  max-width: 100%;
   padding-bottom: calc(78px + env(safe-area-inset-bottom));
 }
 
@@ -267,6 +270,7 @@ input:focus-visible {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  min-width: 0;
 }
 
 .icon-button,
@@ -313,12 +317,17 @@ input:focus-visible {
   width: min(100%, 1560px);
   margin: 0 auto;
   padding: var(--space-6) clamp(var(--space-4), 2vw, var(--space-8)) var(--space-10);
+  overflow-x: clip;
 }
 
 .dashboard-grid {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: var(--space-5);
+}
+
+.dashboard-grid > * {
+  min-width: 0;
 }
 
 .club-hero {
@@ -328,6 +337,7 @@ input:focus-visible {
   grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
   gap: var(--space-5);
   min-height: 360px;
+  min-width: 0;
   padding: var(--space-6);
   overflow: hidden;
   border: 1px solid var(--color-border);
@@ -363,6 +373,7 @@ input:focus-visible {
 .hero-finance {
   position: relative;
   z-index: 1;
+  min-width: 0;
 }
 
 .club-hero-content {
@@ -376,6 +387,11 @@ input:focus-visible {
   display: flex;
   align-items: center;
   gap: var(--space-5);
+  min-width: 0;
+}
+
+.club-identity > div {
+  min-width: 0;
 }
 
 .club-badge {
@@ -397,13 +413,20 @@ input:focus-visible {
   margin-bottom: var(--space-3);
 }
 
+.hero-status-row span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .club-identity h2 {
   max-width: 780px;
   font-size: var(--font-size-2xl);
+  overflow-wrap: anywhere;
 }
 
 .club-identity p {
   margin: var(--space-2) 0 0;
+  overflow-wrap: anywhere;
 }
 
 .hero-metrics {
@@ -450,17 +473,17 @@ input:focus-visible {
   background: rgba(7, 17, 31, 0.72);
 }
 
-.game-panel:nth-child(2),
-.game-panel:nth-child(3),
-.game-panel:nth-child(5),
-.game-panel:nth-child(6),
-.game-panel:nth-child(8),
-.game-panel:nth-child(9) {
+.dashboard-grid > .game-panel:nth-child(2),
+.dashboard-grid > .game-panel:nth-child(3),
+.dashboard-grid > .game-panel:nth-child(5),
+.dashboard-grid > .game-panel:nth-child(6),
+.dashboard-grid > .game-panel:nth-child(8),
+.dashboard-grid > .game-panel:nth-child(9) {
   grid-column: span 4;
 }
 
-.league-panel,
-.player-panel {
+.dashboard-grid > .league-panel,
+.dashboard-grid > .player-panel {
   grid-column: span 8;
 }
 
@@ -520,6 +543,7 @@ input:focus-visible {
 .stat-card {
   display: grid;
   gap: var(--space-1);
+  min-width: 0;
   padding: var(--space-4);
   border: 1px solid rgba(58, 89, 118, 0.72);
   border-radius: var(--radius-panel);
@@ -924,14 +948,14 @@ input:focus-visible {
     grid-template-columns: 1fr;
   }
 
-  .game-panel:nth-child(2),
-  .game-panel:nth-child(3),
-  .game-panel:nth-child(5),
-  .game-panel:nth-child(6),
-  .game-panel:nth-child(8),
-  .game-panel:nth-child(9),
-  .league-panel,
-  .player-panel {
+  .dashboard-grid > .game-panel:nth-child(2),
+  .dashboard-grid > .game-panel:nth-child(3),
+  .dashboard-grid > .game-panel:nth-child(5),
+  .dashboard-grid > .game-panel:nth-child(6),
+  .dashboard-grid > .game-panel:nth-child(8),
+  .dashboard-grid > .game-panel:nth-child(9),
+  .dashboard-grid > .league-panel,
+  .dashboard-grid > .player-panel {
     grid-column: span 6;
   }
 
@@ -956,13 +980,15 @@ input:focus-visible {
   .topbar {
     grid-template-columns: minmax(0, 1fr) auto;
     gap: var(--space-3);
+    overflow: hidden;
   }
 
   .topbar-search {
     display: none;
   }
 
-  .profile-button span,
+  .profile-button,
+  .topbar-actions .icon-button:nth-child(2),
   .topbar-actions .icon-button:nth-child(3) {
     display: none;
   }
@@ -982,10 +1008,19 @@ input:focus-visible {
 
   .club-hero {
     min-height: 0;
+    width: 100%;
+    max-width: 100%;
     padding: var(--space-4);
   }
 
+  .hero-finance {
+    width: 100%;
+    max-width: 100%;
+  }
+
   .club-identity {
+    display: grid;
+    grid-template-columns: 74px minmax(0, 1fr);
     align-items: flex-start;
   }
 
@@ -1040,6 +1075,10 @@ input:focus-visible {
 
   .hero-status-row {
     align-items: flex-start;
+  }
+
+  .topbar-actions {
+    justify-self: end;
   }
 
   .club-identity {
