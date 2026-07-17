@@ -7,6 +7,7 @@ import { AUTH_CONFIG, AuthConfig } from '../../config/auth.config';
 import { PrismaService } from '../../database/prisma.service';
 import { AUTH_AUDIT_EVENTS } from '../constants/auth-audit-events';
 import { REGISTER_ACCEPTED_RESPONSE } from '../dto/register.dto';
+import { EmailVerificationResendService } from '../services/email-verification-resend.service';
 import { EmailVerificationService } from '../services/email-verification.service';
 import { PasswordService } from '../services/password.service';
 import { RegisterRateLimitService } from '../services/register-rate-limit.service';
@@ -65,6 +66,12 @@ describe('AuthController register', () => {
           provide: EmailVerificationService,
           useValue: {
             verifyEmail: vi.fn()
+          }
+        },
+        {
+          provide: EmailVerificationResendService,
+          useValue: {
+            resendVerification: vi.fn()
           }
         },
         {

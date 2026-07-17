@@ -1,5 +1,6 @@
 import { Transform } from 'class-transformer';
 import { IsEmail, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { normalizeEmailInput } from '../utils/email-normalization';
 
 export class RegisterDto {
   @Transform(({ value }) => normalizeEmailInput(value))
@@ -39,14 +40,6 @@ export const REGISTER_ACCEPTED_RESPONSE: RegisterResponseDto = {
   message:
     'Kayıt isteğiniz alındı. Uygunsa e-posta adresinize doğrulama bağlantısı gönderilecektir.'
 };
-
-function normalizeEmailInput(value: unknown): unknown {
-  if (typeof value !== 'string') {
-    return value;
-  }
-
-  return value.trim().toLowerCase();
-}
 
 function trimStringInput(value: unknown): unknown {
   if (typeof value !== 'string') {

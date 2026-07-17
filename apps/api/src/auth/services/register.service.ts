@@ -11,6 +11,7 @@ import {
 import { PasswordService, PasswordValidationError } from './password.service';
 import { RegisterRateLimitService } from './register-rate-limit.service';
 import { TokenHashService } from './token-hash.service';
+import { normalizeAuthEmail } from '../utils/email-normalization';
 
 type NormalizedRegisterInput = {
   email: string;
@@ -165,13 +166,7 @@ export class RegisterService {
   }
 
   private normalizeEmail(email: string): string {
-    const normalizedEmail = this.assertSafeText(email.trim().toLowerCase(), 'email');
-
-    if (normalizedEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
-      throw new BadRequestException('Invalid email');
-    }
-
-    return normalizedEmail;
+    return normalizeAuthEmail(email);
   }
 
   private assertAllowedFields(dto: RegisterDto): void {

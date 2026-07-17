@@ -126,6 +126,18 @@ Invoke-RestMethod -Method Post -Uri "$baseUrl/auth/verify-email" -ContentType "a
 
 Successful verification returns `status = "verified"`. The same token cannot be used twice; expired, revoked, used, unknown, or disabled-user tokens return the same generic error envelope.
 
+Resend verification accepts only an email in the JSON body and returns the same generic response for eligible, unknown, verified, or disabled accounts. The current delivery adapter is a no-op stub; do not expect a real email until a provider is wired in a later sprint:
+
+```powershell
+$resendPayload = @{
+  email = "smoke-register@example.invalid"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post -Uri "$baseUrl/auth/resend-verification" -ContentType "application/json" -Body $resendPayload
+```
+
+The resend endpoint must not set cookies or return `userId`, `email`, `token`, `tokenHash`, or delivery state.
+
 Refresh rotates the HttpOnly refresh cookie and returns a new access token. The request body stays empty; do not put the refresh token in JSON, query params, or headers:
 
 ```powershell

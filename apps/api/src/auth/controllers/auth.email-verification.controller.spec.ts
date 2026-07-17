@@ -12,6 +12,7 @@ import {
   AUTH_EMAIL_VERIFICATION_INVALID_MESSAGE
 } from '../errors/auth-email-verification-invalid.exception';
 import { EmailVerificationRateLimitService } from '../services/email-verification-rate-limit.service';
+import { EmailVerificationResendService } from '../services/email-verification-resend.service';
 import { EmailVerificationService } from '../services/email-verification.service';
 import { LoginService } from '../services/login.service';
 import { LogoutService } from '../services/logout.service';
@@ -60,6 +61,12 @@ describe('AuthController verify-email', () => {
       providers: [
         EmailVerificationService,
         EmailVerificationRateLimitService,
+        {
+          provide: EmailVerificationResendService,
+          useValue: {
+            resendVerification: vi.fn()
+          }
+        },
         {
           provide: AUTH_CONFIG,
           useValue: config

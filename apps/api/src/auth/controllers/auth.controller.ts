@@ -12,10 +12,18 @@ import {
 import { LoginDto, LoginResponseDto } from '../dto/login.dto';
 import { RefreshResponseDto } from '../dto/refresh.dto';
 import { RegisterDto, RegisterResponseDto } from '../dto/register.dto';
+import {
+  ResendVerificationDto,
+  ResendVerificationResponseDto
+} from '../dto/resend-verification.dto';
 import { VerifyEmailDto, VerifyEmailResponseDto } from '../dto/verify-email.dto';
 import { AuthLogoutInvalidBodyException } from '../errors/auth-logout-invalid-body.exception';
 import { AuthRefreshException } from '../errors/auth-refresh.exception';
 import { AuthRefreshInvalidBodyException } from '../errors/auth-refresh-invalid-body.exception';
+import {
+  EmailVerificationResendService,
+  ResendVerificationRequestContext
+} from '../services/email-verification-resend.service';
 import { EmailVerificationService } from '../services/email-verification.service';
 import { LoginRequestContext, LoginService } from '../services/login.service';
 import { LogoutRequestContext, LogoutService } from '../services/logout.service';
@@ -28,6 +36,8 @@ export class AuthController {
     @Inject(RegisterService) private readonly registerService: RegisterService,
     @Inject(EmailVerificationService)
     private readonly emailVerificationService: EmailVerificationService,
+    @Inject(EmailVerificationResendService)
+    private readonly emailVerificationResendService: EmailVerificationResendService,
     @Inject(LoginService) private readonly loginService: LoginService,
     @Inject(RefreshService) private readonly refreshService: RefreshService,
     @Inject(LogoutService) private readonly logoutService: LogoutService,
@@ -49,6 +59,18 @@ export class AuthController {
     return this.emailVerificationService.verifyEmail(dto, {
       requestId: readHeader(request, 'x-request-id')
     });
+  }
+
+  @Post('resend-verification')
+  @HttpCode(HttpStatus.ACCEPTED)
+  async resendVerification(
+    @Body() dto: ResendVerificationDto,
+    @Req() request: AuthHttpRequest
+  ): Promise<ResendVerificationResponseDto> {
+    return this.emailVerificationResendService.resendVerification(
+      dto,
+      createResendVerificationRequestContext(request, this.config)
+    );
   }
 
   @Post('login')
@@ -149,6 +171,16 @@ function createRefreshRequestContext(
   request: AuthHttpRequest,
   config: AuthConfig
 ): RefreshRequestContext {
+  return {
+    requestId: readHeader(request, 'x-request-id'),
+    clientIp: resolveClientIp(request, config)
+  };
+}
+
+function createResendVerificationRequestContext(
+  request: AuthHttpRequest,
+  config: AuthConfig
+): ResendVerificationRequestContext {
   return {
     requestId: readHeader(request, 'x-request-id'),
     clientIp: resolveClientIp(request, config)

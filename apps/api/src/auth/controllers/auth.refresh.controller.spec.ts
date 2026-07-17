@@ -8,6 +8,7 @@ import { AUTH_CONFIG, AuthConfig } from '../../config/auth.config';
 import { PrismaService } from '../../database/prisma.service';
 import { AUTH_AUDIT_EVENTS } from '../constants/auth-audit-events';
 import { AccessTokenService } from '../services/access-token.service';
+import { EmailVerificationResendService } from '../services/email-verification-resend.service';
 import { EmailVerificationService } from '../services/email-verification.service';
 import {
   AUTH_REFRESH_INVALID_BODY_CODE,
@@ -649,6 +650,12 @@ async function createAuthRefreshApplication(
         provide: EmailVerificationService,
         useValue: {
           verifyEmail: vi.fn()
+        }
+      },
+      {
+        provide: EmailVerificationResendService,
+        useValue: {
+          resendVerification: vi.fn()
         }
       },
       {
