@@ -9,6 +9,7 @@ import { AUTH_AUDIT_EVENTS } from '../constants/auth-audit-events';
 import { REGISTER_ACCEPTED_RESPONSE } from '../dto/register.dto';
 import { EmailVerificationResendService } from '../services/email-verification-resend.service';
 import { EmailVerificationService } from '../services/email-verification.service';
+import { ForgotPasswordService } from '../services/forgot-password.service';
 import { PasswordService } from '../services/password.service';
 import { RegisterRateLimitService } from '../services/register-rate-limit.service';
 import { RegisterService } from '../services/register.service';
@@ -72,6 +73,12 @@ describe('AuthController register', () => {
           provide: EmailVerificationResendService,
           useValue: {
             resendVerification: vi.fn()
+          }
+        },
+        {
+          provide: ForgotPasswordService,
+          useValue: {
+            forgotPassword: vi.fn()
           }
         },
         {

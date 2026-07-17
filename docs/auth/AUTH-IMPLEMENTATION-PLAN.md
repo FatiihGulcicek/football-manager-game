@@ -170,6 +170,21 @@ Sprint 4D.2 tamamlananlar:
 | Kabul kriterleri | Response hesap varlığını açıklamaz; tokenlar hashlenmiş saklanır; yeni token önceki unused tokenları revoke eder; mail sağlayıcı gerçek secret gerektirmez. |
 | Riskler | E-posta sağlayıcısı seçiminin kapsamı büyütmesi, tokenların loglara sızması. |
 
+Sprint 4E.1 tamamlananlar:
+
+- `POST /auth/forgot-password` endpointi eklendi; publictir ve yalnız body `email` alanını kabul eder.
+- DTO email'i register/login ile ortak helper üzerinden trim/lowercase normalize eder; null byte ve kontrol karakterleri reddedilir.
+- Geçerli biçimli email girdilerinde unknown, eligible, disabled ve unverified kullanıcı aynı 202 generic accepted response'u alır.
+- Uygun kullanıcı koşulu active, verified (`emailVerifiedAt != null`) ve normalized DB email eşleşmesi olarak uygulanır.
+- Her geçerli request için `PasswordResetRateLimitService` boundary çağrılır; raw email yerine hashed email kullanılır. Gerçek Redis limiter Sprint 4F kapsamındadır.
+- Uygun kullanıcıda transaction içinde advisory lock alınır, kullanıcı tekrar okunur, eski unused/unrevoked reset tokenlar revoke edilir, yeni opaque token üretilir, yalnız hash saklanır ve `AUTH_PASSWORD_RESET_REQUESTED` audit log yazılır.
+- Lock key `auth-password-reset:<userId>` biçimindedir; aynı user için concurrent forgot-password işlemleri serialize edilir ve 3 paralel istek sonunda yalnız son token active unused kalır.
+- `PasswordResetDeliveryService` abstraction ve no-op default implementation eklendi; gerçek SMTP/provider entegrasyonu kapsam dışı kaldı.
+- Delivery transaction dışındadır; delivery failure response'a sızmaz ve endpoint generic 202 döner.
+- Transaction/advisory lock/token create/audit create hatalarında endpoint generic 202 döner ve delivery çağrılmaz; eligible user ile unknown user arasında status farkı oluşmaz.
+- Forgot-password access token, refresh token, session, Set-Cookie, reset-password, password change veya session revoke üretmez.
+- Unit ve HTTP/controller testleri token secrecy, rollback, validation, concurrency, delivery failure ve enumeration davranışını kapsar.
+
 ## Sprint 4F - Rate limit, audit log ve security hardening
 
 | Alan | Detay |

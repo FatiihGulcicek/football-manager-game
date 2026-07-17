@@ -13,10 +13,16 @@ import { EmailVerificationResendRateLimitService } from './services/email-verifi
 import { EmailVerificationResendService } from './services/email-verification-resend.service';
 import { EmailVerificationRateLimitService } from './services/email-verification-rate-limit.service';
 import { EmailVerificationService } from './services/email-verification.service';
+import { ForgotPasswordService } from './services/forgot-password.service';
 import { LoginRateLimitService } from './services/login-rate-limit.service';
 import { LoginService } from './services/login.service';
 import { LogoutService } from './services/logout.service';
 import { PasswordService } from './services/password.service';
+import {
+  NoopPasswordResetDeliveryService,
+  PASSWORD_RESET_DELIVERY_SERVICE
+} from './services/password-reset-delivery.service';
+import { PasswordResetRateLimitService } from './services/password-reset-rate-limit.service';
 import { RefreshRateLimitService } from './services/refresh-rate-limit.service';
 import { RefreshService } from './services/refresh.service';
 import { RefreshTokenService } from './services/refresh-token.service';
@@ -46,6 +52,12 @@ import { TokenHashService } from './services/token-hash.service';
     EmailVerificationService,
     EmailVerificationResendRateLimitService,
     EmailVerificationResendService,
+    {
+      provide: PASSWORD_RESET_DELIVERY_SERVICE,
+      useClass: NoopPasswordResetDeliveryService
+    },
+    PasswordResetRateLimitService,
+    ForgotPasswordService,
     SessionService,
     SessionManagementService,
     RefreshTokenService,
@@ -67,6 +79,9 @@ import { TokenHashService } from './services/token-hash.service';
     EmailVerificationService,
     EmailVerificationResendRateLimitService,
     EmailVerificationResendService,
+    PASSWORD_RESET_DELIVERY_SERVICE,
+    PasswordResetRateLimitService,
+    ForgotPasswordService,
     SessionService,
     SessionManagementService,
     RefreshTokenService,
