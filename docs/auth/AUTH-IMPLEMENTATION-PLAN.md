@@ -148,12 +148,24 @@ Sprint 4D.1 tamamlananlar:
 - Verify-email access token, refresh token veya session oluşturmaz ve mevcut sessionları revoke etmez.
 - Verify-email için Sprint 4F'te Redis limiter bağlanabilecek rate-limit service boundary eklendi; bu sprintte hardcoded limiter yoktur.
 
-## Sprint 4E - Resend verification ve şifre sıfırlama
+Sprint 4D.2 tamamlananlar:
+
+- `POST /auth/resend-verification` endpointi eklendi; publictir ve yalnız body `email` alanını kabul eder.
+- DTO email'i register/login ile ortak helper üzerinden trim/lowercase normalize eder; null byte ve kontrol karakterleri reddedilir.
+- Geçerli biçimli email girdilerinde unknown, disabled, already verified ve eligible kullanıcı aynı 202 generic accepted response'u alır.
+- Uygun kullanıcıda transaction içinde eski unused/unrevoked verification tokenlar revoke edilir, yeni opaque token üretilir, yalnız hash saklanır ve `AUTH_EMAIL_VERIFICATION_RESENT` audit log yazılır.
+- PostgreSQL advisory transaction lock ile aynı user için concurrent resend işlemleri serialize edilir; 3 paralel istek sonunda yalnız son token active unused kalır.
+- `EmailVerificationDeliveryService` abstraction ve no-op default implementation eklendi; gerçek SMTP/provider entegrasyonu kapsam dışı kaldı.
+- Delivery transaction dışındadır; delivery failure response'a sızmaz ve endpoint generic 202 döner.
+- Resend access token, refresh token, session veya Set-Cookie üretmez; verified/disabled kullanıcıda side effect oluşturmaz.
+- Resend için Sprint 4F'te Redis limiter bağlanabilecek emailHash/IP/endpoint rate-limit boundary eklendi; bu sprintte hardcoded limiter yoktur.
+
+## Sprint 4E - Şifre sıfırlama ve e-posta delivery genişletmesi
 
 | Alan | Detay |
 | --- | --- |
-| Amaç | Resend verification, forgot password ve reset password akışlarını kurmak. |
-| Değişecek ana dosyalar | Auth email/reset services, mail provider abstraction veya fake adapter, DTO'lar, tests. |
+| Amaç | Forgot password ve reset password akışlarını kurmak; resend/verify için gerçek provider seçimi gerekiyorsa mevcut delivery abstraction'ı genişletmek. |
+| Değişecek ana dosyalar | Auth reset services, mail provider adapter, DTO'lar, tests. |
 | Test şartları | Verification token expiry/used/revoked, reset token expiry/used/revoked, enumeration koruması, reset sonrası session revoke. |
 | Kabul kriterleri | Response hesap varlığını açıklamaz; tokenlar hashlenmiş saklanır; yeni token önceki unused tokenları revoke eder; mail sağlayıcı gerçek secret gerektirmez. |
 | Riskler | E-posta sağlayıcısı seçiminin kapsamı büyütmesi, tokenların loglara sızması. |

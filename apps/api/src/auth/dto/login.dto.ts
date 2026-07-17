@@ -1,6 +1,7 @@
 import { LoginContext } from '@football-manager/database';
 import { Transform } from 'class-transformer';
 import { IsEmail, IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
+import { normalizeEmailInput } from '../utils/email-normalization';
 
 export class LoginDto {
   @Transform(({ value }) => normalizeEmailInput(value))
@@ -30,11 +31,3 @@ export type LoginResponseDto = {
     } | null;
   };
 };
-
-function normalizeEmailInput(value: unknown): unknown {
-  if (typeof value !== 'string') {
-    return value;
-  }
-
-  return value.trim().toLowerCase();
-}

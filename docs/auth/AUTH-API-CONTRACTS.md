@@ -1,6 +1,6 @@
 # Authentication API Contracts
 
-Bu belge authentication API sözleşmelerini tanımlar. Sprint 4D.1 itibarıyla `POST /auth/register`, `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `POST /auth/logout-all`, `GET /auth/sessions`, `DELETE /auth/sessions/:sessionId` ve `POST /auth/verify-email` uygulanmıştır; diğer endpointler sonraki alt sprintler için sözleşme durumundadır.
+Bu belge authentication API sözleşmelerini tanımlar. Sprint 4D.2 itibarıyla `POST /auth/register`, `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `POST /auth/logout-all`, `GET /auth/sessions`, `DELETE /auth/sessions/:sessionId`, `POST /auth/verify-email` ve `POST /auth/resend-verification` uygulanmıştır; diğer endpointler sonraki alt sprintler için sözleşme durumundadır.
 
 ## Ortak kurallar
 
@@ -67,7 +67,7 @@ Hata mesajları kullanıcı varlığı, e-posta doğrulama durumu veya parola ya
 | `POST /auth/logout` | Optional refresh cookie | Empty body | Empty | 204, 400 | `AUTH_LOGOUT_INVALID_BODY` | Hardcoded limiter yok; Sprint 4F boundary | Eşleşen aktif session için `AUTH_LOGOUT` | Idempotent; cookie yok, uydurma cookie veya zaten çıkılmış session için 204 döner. |
 | `POST /auth/logout-all` | Access token + active session | Empty body | Empty | 204, 400, 401 | `AUTH_LOGOUT_ALL_INVALID_BODY`, `AUTH_UNAUTHORIZED` | User + IP | `AUTH_LOGOUT_ALL` | Idempotent; active session yoksa 204. |
 | `POST /auth/verify-email` | Public | `{ token }` | `{ status: "verified", message }` | 200, 400, 429 | `AUTH_EMAIL_VERIFICATION_INVALID`, `AUTH_RATE_LIMITED` | Verify-email limiter boundary; Redis limit Sprint 4F | Başarılı consume için `AUTH_EMAIL_VERIFIED` | Geçerli unused token, kullanıcı zaten verified olsa bile consumed edilir ve 200 döner; aynı token ikinci kullanımda generic invalid döner. |
-| `POST /auth/resend-verification` | Public veya authenticated | `{ email }` | `{ status: "accepted" }` | 202, 400, 429 | `AUTH_RATE_LIMITED`, `AUTH_VALIDATION_FAILED` | IP + emailHash | `AUTH_EMAIL_VERIFICATION_RESENT` | Her zaman accepted; hesap varlığı açıklanmaz; önceki unused tokenlar revoke edilir. |
+| `POST /auth/resend-verification` | Public | `{ email }` | `{ status: "accepted", message }` | 202, 400, 429 | `AUTH_RATE_LIMITED`, `AUTH_VALIDATION_FAILED` | Resend limiter boundary; Redis limit Sprint 4F | Uygun kullanıcıda token create için `AUTH_EMAIL_VERIFICATION_RESENT` | Geçerli biçimli email girdilerinde hesap varlığı açıklanmaz; uygun kullanıcıda önceki unused tokenlar revoke edilir ve yeni hash token oluşturulur. |
 | `POST /auth/forgot-password` | Public | `{ email }` | `{ status: "accepted" }` | 202, 400, 429 | `AUTH_RATE_LIMITED`, `AUTH_VALIDATION_FAILED` | IP + emailHash | `AUTH_PASSWORD_RESET_REQUESTED` | Her zaman accepted; hesap varlığı açıklanmaz; önceki unused reset tokenlar revoke edilir. |
 | `POST /auth/reset-password` | Public | `{ token, newPassword }` | `{ status: "password_reset" }` | 200, 400, 410, 429 | `AUTH_RESET_INVALID`, `AUTH_RESET_EXPIRED`, `AUTH_PASSWORD_POLICY_FAILED` | Token hash + IP | `AUTH_PASSWORD_RESET_COMPLETED`, failed | Başarılı kullanım tek seferliktir; tekrar kullanım invalid kabul edilir. |
 | `POST /auth/change-password` | Access token + active session | `{ currentPassword, newPassword }` | `{ status: "password_changed" }` | 200, 400, 401, 429 | `AUTH_INVALID_CREDENTIALS`, `AUTH_PASSWORD_POLICY_FAILED`, `AUTH_RATE_LIMITED` | User + IP | `AUTH_PASSWORD_CHANGED` | Aynı istek tekrar current password değiştiği için başarısız olabilir. |
@@ -375,6 +375,59 @@ Invalid response tüm dış nedenler için aynıdır: token bulunamadı, expired
 Verify-email yeni session oluşturmaz, access token üretmez, refresh token üretmez, mevcut sessionları revoke etmez ve login işlemi yapmaz. Kullanıcı doğrulama sonrası normal login endpointiyle giriş yapar.
 
 `AUTH_EMAIL_VERIFIED` audit metadata allowlist'i yalnız `context` ve `verificationMethod` alanlarını içerir. Raw token, token hash, e-posta, IP, cookie veya authorization header audit metadata içine yazılmaz. Geçersiz token denemeleri bu sprintte sınırsız audit log üretmez; Sprint 4F'te rate-limit/metric katmanına bağlanacaktır.
+
+## Uygulanan resend verification sözleşmesi
+
+`POST /auth/resend-verification` public endpointtir; access token, refresh cookie veya mevcut session gerektirmez. Email yalnız request body içinden kabul edilir:
+
+```json
+{
+  "email": "user@example.invalid"
+}
+```
+
+- `email` zorunlu stringdir, trim/lowercase normalize edilir ve maksimum 254 karakterdir.
+- Null byte ve sakıncalı kontrol karakterleri reddedilir.
+- Query, header, cookie veya authorization header içinden email kabul edilmez.
+- `role`, `userId`, `token` veya başka ek body alanları kabul edilmez.
+
+Başarılı ve enumeration-safe response tüm geçerli biçimli email girdilerinde aynıdır:
+
+```json
+{
+  "status": "accepted",
+  "message": "E-posta adresi uygunsa yeni doğrulama bağlantısı gönderilecektir."
+}
+```
+
+Aşağıdaki durumlar dış response'ta ayrıştırılmaz: kullanıcı yok, kullanıcı disabled, kullanıcı zaten verified, email normalize edildiğinde eşleşme yok veya mail delivery stub no-op davranıyor. Malformed body, geçersiz email, boş/whitespace email, object/array/number email, aşırı uzun email ve ekstra alanlar DTO validation ile 400 döner; enumeration koruması geçerli biçimli email girdileri için uygulanır.
+
+Uygun kullanıcı koşulları:
+
+- User kaydı bulunur.
+- User active durumdadır.
+- `emailVerifiedAt` null durumdadır.
+- DB'deki normalized email request email ile eşleşir.
+- Mevcut şemada soft-delete alanı yoktur; ileride eklenirse uygunluk kontrolüne dahil edilmelidir.
+
+Uygun kullanıcı için transaction içinde sırasıyla aynı user'a ait tüm unused/unrevoked verification tokenlar revoke edilir, yeni opaque token üretilir, yalnız `tokenHash` DB'ye yazılır ve `AUTH_EMAIL_VERIFICATION_RESENT` audit kaydı oluşturulur. Expired ama unused/unrevoked tokenlar da revoke kapsamına alınır; böylece aynı kullanıcı için tek aktif unused token kalır. Başka kullanıcının tokenları etkilenmez.
+
+Aynı email için concurrent resend istekleri user-scoped PostgreSQL advisory transaction lock ile serialize edilir. Bu sprintin sözleşmesi: her serialized resend yeni token oluşturabilir, bir önceki tokenı revoke edebilir, audit ve delivery stub çağrısı üretebilir; 3 paralel istek sonunda yalnız son token active unused kalır. Bu, rate limit gerçek Redis implementasyonuna bağlanana kadar gereksiz e-posta üretimi riski taşır ama birden fazla aktif token bırakmaz.
+
+Mail delivery transaction dışında `EmailVerificationDeliveryService` abstraction'ı ile çağrılır. Varsayılan implementasyon `NoopEmailVerificationDeliveryService` gerçek SMTP/provider çağrısı yapmaz ve email/raw token loglamaz. Delivery failure endpoint response'una yansımaz; response yine generic 202 olur. Bu tercih enumeration direncini korur, fakat token DB'de kalıp mail gönderilememesi riskini Sprint 4F/provider retry tasarımına bırakır.
+
+`AUTH_EMAIL_VERIFICATION_RESENT` audit metadata allowlist'i yalnız `context` ve `verificationMethod` alanlarını içerir:
+
+```json
+{
+  "context": "WEB",
+  "verificationMethod": "TOKEN_RESEND"
+}
+```
+
+Raw token, tokenHash, email, request body, IP, cookie, authorization header, expiresAt, eski token idleri veya yeni token id audit metadata içine yazılmaz. Kullanıcı yok, disabled, already verified veya malformed input durumlarında audit yazılmaz.
+
+Resend verification yeni session oluşturmaz, access token üretmez, refresh token üretmez, Set-Cookie yazmaz ve login davranışını değiştirmez.
 
 ## DTO şekilleri
 

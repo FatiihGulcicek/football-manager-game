@@ -34,6 +34,13 @@ Bu plan Sprint 4B ve sonrası auth uygulaması için beklenen test kapsamını t
 | Email verification generic invalid | Unknown, expired, revoked, used token ve disabled user aynı `AUTH_EMAIL_VERIFICATION_INVALID` zarfını alır. |
 | Email verification already verified user | Geçerli unused token consumed edilir ve 200 verified response döner. |
 | Email verification concurrent consume | İki paralel istekte yalnız biri başarılı olur; ikinci generic invalid alır ve yalnız bir audit oluşur. |
+| Resend verification normalized lookup | Email trim/lowercase normalize edilir ve register/login helper'ı ile aynı canonical lookup yapılır. |
+| Resend verification generic unknown/ineligible | Unknown, disabled ve already verified kullanıcılar aynı 202 accepted response'u alır ve side effect oluşmaz. |
+| Resend verification token rotation | Uygun kullanıcıda eski unused/unrevoked tokenlar revoke edilir ve yeni hash token oluşturulur. |
+| Resend verification token secrecy | Raw token DB, response veya audit metadata'ya yazılmaz; yalnız delivery abstraction'a aktarılır. |
+| Resend verification rollback | Token create veya audit create hata verirse eski token revoke edilmiş kalmaz ve yeni token/audit oluşmaz. |
+| Resend verification delivery failure | Delivery hata verse bile response generic 202 kalır; raw token hata response'una sızmaz. |
+| Resend verification advisory lock | User-scoped lock çağrılır ve aynı user için concurrent resend işlemleri serialize edilir. |
 | Expired token | Süresi dolmuş token reddedilir. |
 | Revoked session | Revoked session ile access/refresh kabul edilmez. |
 | Disabled user | `isActive=false` kullanıcı login, refresh ve authenticated request yapamaz. |
@@ -82,6 +89,13 @@ Bu plan Sprint 4B ve sonrası auth uygulaması için beklenen test kapsamını t
 | Email verification body-only token | Query/header token kabul edilmez; body dışından token gelirse consume yapılmaz. |
 | Email verification extra fields | `role`, `userId` gibi ek body alanları generic invalid ile reddedilir. |
 | Email verification no session issuance | Doğrulama access token, refresh token veya session oluşturmaz; kullanıcı sonra login yapar. |
+| Resend verification valid request | Geçerli body ile 202 accepted döner, Set-Cookie/access/refresh/session oluşturulmaz. |
+| Resend verification enumeration | Unknown, eligible, verified ve disabled kullanıcı aynı body response'unu alır. |
+| Resend verification body-only email | Query/header/cookie email kabul edilmez; body email yoksa validation 400 döner. |
+| Resend verification malformed email | Empty, whitespace-only, invalid, null, object, array, number, oversized, null byte, kontrol karakteri ve extra field 400 alır. |
+| Resend verification case/trim | Uppercase ve surrounding whitespace request mevcut normalized email ile eşleşir. |
+| Resend verification concurrent | 3 paralel request 202 döner; sonunda yalnız 1 active unused token kalır, audit/delivery count sözleşmeye uygundur. |
+| Resend verification isolation | Başka kullanıcının verification tokenları revoke edilmez. |
 | Password reset | Yeni parola set edilir, reset token kullanılır, sessionlar revoke edilir. |
 | Session listing | Kullanıcı yalnız kendi session özetlerini görür. |
 | Session listing current-first | Current session `isCurrent=true` ile ilk sırada, diğerleri `lastSeenAt` descending döner. |
@@ -125,6 +139,9 @@ Bu plan Sprint 4B ve sonrası auth uygulaması için beklenen test kapsamını t
 | Session management IDOR | User A, User B sessionını listeleyemez veya silemez; silme denemesi 404 ile existence gizler. |
 | Email verification leakage | Verify response ve audit metadata raw token, tokenHash, email, cookie, authorization header, raw IP ve DB detayı içermez. |
 | Email verification audit flood boundary | Invalid token denemeleri sınırsız audit log üretmez; Sprint 4F limiter/metric boundary'si korunur. |
+| Resend verification leakage | Response, audit metadata ve validation errors raw token, tokenHash, email, cookie, authorization header, raw IP veya DB detayı içermez. |
+| Resend verification SQL/advisory lock injection | Advisory lock query parameterized bind kullanır; userId raw SQL stringine interpolate edilmez. |
+| Resend verification timing enumeration | Geçerli email girdilerinde response aynı 202 olur; yapay sleep eklenmez, timing riski Sprint 4F limiter/metrics ile izlenir. |
 | Development cookie policy | Localhost prefix'siz ve `Secure=false` çalışabilir; production validation bunu production'da reddeder. |
 | XSS taşıyan displayName veya deviceName | Değerler encode edilir, script çalışmaz, loglara raw zararlı içerik yazılmaz. |
 | Yetki yükseltme | Request body ile `role=ADMIN` gönderilse bile rol değişmez. |
@@ -141,6 +158,7 @@ Bu plan Sprint 4B ve sonrası auth uygulaması için beklenen test kapsamını t
 | Çoklu cihaz | Her cihaz ayrı session olarak listelenir ve tek tek revoke edilir. |
 | Session management manuel akış | User A iki session, User B bir session ile list/revoke/IDOR/current revoke/logout-all akışı doğrulanır. |
 | Verify-email manuel akış | Geçerli, ikinci kullanım, uydurma, expired, revoked ve paralel verify davranışları aynı local fixture düzeniyle doğrulanır. |
+| Resend verification manuel akış | Register sonrası resend 202 döner; eski token revoked, yeni hash token created, unknown/verified/disabled 202 ve 3 concurrent request sonunda 1 active token doğrulanır. |
 | Saat farkı | UTC expiry ve clock skew toleransı kullanıcıyı gereksiz kırmaz; server expiry esas alınır. |
 | Redis kapalı | Fallback limiter devreye girer; health degraded ve internal metric görünür olur. |
 | PostgreSQL kapalı | Auth endpointleri kontrollü hata döner; health degraded döner. |

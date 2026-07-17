@@ -12,6 +12,7 @@ import { PasswordService } from './password.service';
 import { RefreshTokenService } from './refresh-token.service';
 import { SessionService } from './session.service';
 import { TokenHashService } from './token-hash.service';
+import { normalizeAuthEmail } from '../utils/email-normalization';
 
 export type LoginRequestContext = {
   requestId?: string;
@@ -305,13 +306,7 @@ export class LoginService {
   }
 
   private normalizeEmail(email: string): string {
-    const normalizedEmail = this.assertSafeText(email.trim().toLowerCase(), 'email');
-
-    if (normalizedEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
-      throw new BadRequestException('Invalid email');
-    }
-
-    return normalizedEmail;
+    return normalizeAuthEmail(email);
   }
 
   private normalizePassword(password: string): string {

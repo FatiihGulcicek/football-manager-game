@@ -5,6 +5,12 @@ import { AuthSessionsController } from './controllers/auth-sessions.controller';
 import { AuthController } from './controllers/auth.controller';
 import { AccessTokenGuard } from './guards/access-token.guard';
 import { AccessTokenService } from './services/access-token.service';
+import {
+  EMAIL_VERIFICATION_DELIVERY_SERVICE,
+  NoopEmailVerificationDeliveryService
+} from './services/email-verification-delivery.service';
+import { EmailVerificationResendRateLimitService } from './services/email-verification-resend-rate-limit.service';
+import { EmailVerificationResendService } from './services/email-verification-resend.service';
 import { EmailVerificationRateLimitService } from './services/email-verification-rate-limit.service';
 import { EmailVerificationService } from './services/email-verification.service';
 import { LoginRateLimitService } from './services/login-rate-limit.service';
@@ -32,8 +38,14 @@ import { TokenHashService } from './services/token-hash.service';
     PasswordService,
     TokenHashService,
     AccessTokenService,
+    {
+      provide: EMAIL_VERIFICATION_DELIVERY_SERVICE,
+      useClass: NoopEmailVerificationDeliveryService
+    },
     EmailVerificationRateLimitService,
     EmailVerificationService,
+    EmailVerificationResendRateLimitService,
+    EmailVerificationResendService,
     SessionService,
     SessionManagementService,
     RefreshTokenService,
@@ -50,8 +62,11 @@ import { TokenHashService } from './services/token-hash.service';
     TokenHashService,
     AccessTokenService,
     AccessTokenGuard,
+    EMAIL_VERIFICATION_DELIVERY_SERVICE,
     EmailVerificationRateLimitService,
     EmailVerificationService,
+    EmailVerificationResendRateLimitService,
+    EmailVerificationResendService,
     SessionService,
     SessionManagementService,
     RefreshTokenService,
