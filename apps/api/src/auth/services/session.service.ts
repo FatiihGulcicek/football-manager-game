@@ -316,6 +316,14 @@ export class SessionService {
     return sessionIds.length;
   }
 
+  async invalidateSessionCache(sessionId: string): Promise<void> {
+    await this.invalidateCache(sessionId);
+  }
+
+  async invalidateSessionCaches(sessionIds: string[]): Promise<void> {
+    await Promise.all(sessionIds.map((sessionId) => this.invalidateCache(sessionId)));
+  }
+
   async updateLastSeen(sessionId: string, lastSeenAt = new Date()): Promise<void> {
     await this.prisma.userSession.update({
       where: {

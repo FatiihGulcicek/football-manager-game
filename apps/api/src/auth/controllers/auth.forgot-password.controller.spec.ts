@@ -22,6 +22,7 @@ import { LoginService } from '../services/login.service';
 import { LogoutService } from '../services/logout.service';
 import { RefreshService } from '../services/refresh.service';
 import { RegisterService } from '../services/register.service';
+import { ResetPasswordService } from '../services/reset-password.service';
 import { TokenHashService } from '../services/token-hash.service';
 import { AuthController } from './auth.controller';
 
@@ -373,6 +374,12 @@ async function createAuthForgotPasswordApplication(
     controllers: [AuthController],
     providers: [
       ForgotPasswordService,
+      {
+        provide: ResetPasswordService,
+        useValue: {
+          resetPassword: vi.fn()
+        }
+      },
       PasswordResetRateLimitService,
       {
         provide: PASSWORD_RESET_DELIVERY_SERVICE,

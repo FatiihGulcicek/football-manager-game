@@ -1,6 +1,6 @@
 # Authentication API Contracts
 
-Bu belge authentication API sözleşmelerini tanımlar. Sprint 4E.1 itibarıyla `POST /auth/register`, `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `POST /auth/logout-all`, `GET /auth/sessions`, `DELETE /auth/sessions/:sessionId`, `POST /auth/verify-email`, `POST /auth/resend-verification` ve `POST /auth/forgot-password` uygulanmıştır; diğer endpointler sonraki alt sprintler için sözleşme durumundadır.
+Bu belge authentication API sözleşmelerini tanımlar. Sprint 4E.2 itibarıyla `POST /auth/register`, `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `POST /auth/logout-all`, `GET /auth/sessions`, `DELETE /auth/sessions/:sessionId`, `POST /auth/verify-email`, `POST /auth/resend-verification`, `POST /auth/forgot-password` ve `POST /auth/reset-password` uygulanmıştır; diğer endpointler sonraki alt sprintler için sözleşme durumundadır.
 
 ## Ortak kurallar
 
@@ -69,7 +69,7 @@ Hata mesajları kullanıcı varlığı, e-posta doğrulama durumu veya parola ya
 | `POST /auth/verify-email` | Public | `{ token }` | `{ status: "verified", message }` | 200, 400, 429 | `AUTH_EMAIL_VERIFICATION_INVALID`, `AUTH_RATE_LIMITED` | Verify-email limiter boundary; Redis limit Sprint 4F | Başarılı consume için `AUTH_EMAIL_VERIFIED` | Geçerli unused token, kullanıcı zaten verified olsa bile consumed edilir ve 200 döner; aynı token ikinci kullanımda generic invalid döner. |
 | `POST /auth/resend-verification` | Public | `{ email }` | `{ status: "accepted", message }` | 202, 400, 429 | `AUTH_RATE_LIMITED`, `AUTH_VALIDATION_FAILED` | Resend limiter boundary; Redis limit Sprint 4F | Uygun kullanıcıda token create için `AUTH_EMAIL_VERIFICATION_RESENT` | Geçerli biçimli email girdilerinde hesap varlığı açıklanmaz; uygun kullanıcıda önceki unused tokenlar revoke edilir ve yeni hash token oluşturulur. |
 | `POST /auth/forgot-password` | Public | `{ email }` | `{ status: "accepted", message }` | 202, 400, 429 | `AUTH_RATE_LIMITED`, `AUTH_VALIDATION_FAILED` | Forgot-password limiter boundary; Redis limit Sprint 4F | Uygun kullanıcıda token create için `AUTH_PASSWORD_RESET_REQUESTED` | Geçerli biçimli email girdilerinde hesap varlığı açıklanmaz; uygun ve verified kullanıcıda önceki unused reset tokenlar revoke edilir ve yeni hash token oluşturulur. |
-| `POST /auth/reset-password` | Public | `{ token, newPassword }` | `{ status: "password_reset" }` | 200, 400, 410, 429 | `AUTH_RESET_INVALID`, `AUTH_RESET_EXPIRED`, `AUTH_PASSWORD_POLICY_FAILED` | Token hash + IP | `AUTH_PASSWORD_RESET_COMPLETED`, failed | Başarılı kullanım tek seferliktir; tekrar kullanım invalid kabul edilir. |
+| `POST /auth/reset-password` | Public | `{ token, newPassword }` | `{ status: "success", message }` | 200, 400, 429 | `INVALID_OR_EXPIRED_RESET_TOKEN`, `AUTH_PASSWORD_POLICY_FAILED`, `AUTH_VALIDATION_FAILED`, `AUTH_RATE_LIMITED` | Reset limiter boundary; Redis limit Sprint 4F | Başarılı consume için `AUTH_PASSWORD_RESET_COMPLETED` | Token yalnız body içinden kabul edilir; başarılı kullanım tek seferliktir, tekrar kullanım generic invalid kabul edilir ve tüm aktif sessionlar revoke edilir. |
 | `POST /auth/change-password` | Access token + active session | `{ currentPassword, newPassword }` | `{ status: "password_changed" }` | 200, 400, 401, 429 | `AUTH_INVALID_CREDENTIALS`, `AUTH_PASSWORD_POLICY_FAILED`, `AUTH_RATE_LIMITED` | User + IP | `AUTH_PASSWORD_CHANGED` | Aynı istek tekrar current password değiştiği için başarısız olabilir. |
 | `GET /auth/me` | Access token + active session | None | `{ user: PublicUser, session: CurrentSession }` | 200, 401 | `AUTH_UNAUTHORIZED`, `AUTH_SESSION_REVOKED` | Normal API limit | Opsiyonel `AUTH_ME_READ` metric | Read-only. |
 | `GET /auth/sessions` | Access token + active session | None | `{ sessions: SessionSummary[] }` | 200, 401 | `AUTH_UNAUTHORIZED` | User limit | Yok | Read-only. |
@@ -485,6 +485,82 @@ Transaction, advisory lock, token create veya audit create hata verirse endpoint
 
 Raw token, tokenHash, email, request body, IP, cookie, authorization header, user-agent, expiresAt, eski token idleri veya yeni token id audit metadata içine yazılmaz. Kullanıcı yok, disabled, unverified veya malformed input durumlarında audit yazılmaz.
 
+## Uygulanan reset password sözleşmesi
+
+`POST /auth/reset-password` public endpointtir; access token veya refresh cookie gerektirmez. Token yalnız request body içinden kabul edilir:
+
+```json
+{
+  "token": "opaque-password-reset-token",
+  "newPassword": "NewPassword123"
+}
+```
+
+- `token` zorunlu stringdir, trim edilmez, normalize edilmez ve lowercase yapılmaz.
+- Token opaque ve case-sensitive kabul edilir; minimum 32, maksimum 512 karakterdir.
+- Token yalnız base64url uyumlu karakterlerden oluşmalıdır; whitespace, tab, CR/LF, null byte ve kontrol karakterleri reddedilir.
+- `newPassword` zorunlu stringdir ve register ile aynı `PasswordService` politikasından geçer; parola otomatik trim edilmez.
+- Query, path, header, cookie veya `Authorization` içinden token kabul edilmez.
+- `role`, `userId`, `refreshToken`, nested object veya başka ek body alanları kabul edilmez.
+
+Başarılı response:
+
+```json
+{
+  "status": "success",
+  "message": "Parolanız başarıyla güncellendi. Lütfen yeniden giriş yapın."
+}
+```
+
+Başarılı response userId, email, token, tokenHash, passwordHash, session id, refresh token, revoke count, expiresAt, usedAt veya audit id içermez. Reset-password endpointi Set-Cookie yazmaz, access token üretmez ve refresh token body dönmez.
+
+Token-state ve user-state hataları dışarıda ayrıştırılmaz. Token bulunamadı, expired, revoked, used, hash eşleşmedi, user missing, user disabled, user unverified veya concurrent consume yarışı durumlarının hepsi aynı 400 zarfını döner:
+
+```json
+{
+  "error": {
+    "code": "INVALID_OR_EXPIRED_RESET_TOKEN",
+    "message": "Parola sıfırlama bağlantısı geçersiz veya süresi dolmuş.",
+    "requestId": "req_..."
+  }
+}
+```
+
+Raw token önce `TokenHashService.hashToken()` ile hashlenir. Rate-limit boundary her valid-format request için raw token yerine `tokenHash`, normalize client IP ve `requestId` ile çağrılır. Redis destekli gerçek limit Sprint 4F kapsamındadır.
+
+Servis önce yalnız `PasswordResetToken.tokenHash` üzerinden preflight lookup yapar. Token bulunursa parola hash'i transaction dışında üretilir; hashleme veya parola policy hatasında DB mutation, token consume, session revoke veya audit oluşmaz.
+
+Transaction içinde token-scoped PostgreSQL advisory lock alınır. Lock key biçimi `auth-password-reset-consume:<tokenHash>` olur; raw token lock key, log veya response içine girmez. Token transaction içinde yeniden okunur ve şu koşullarla doğrulanır:
+
+- Token `PasswordResetToken` tablosundadır; email verification tokenları kabul edilmez.
+- `usedAt == null`, `revokedAt == null`, `expiresAt > now`.
+- Bağlı user vardır, active durumdadır ve `emailVerifiedAt != null`.
+
+Başarılı transaction şu işlemleri atomik yapar:
+
+- `User.passwordHash` yeni Argon2id hash ile güncellenir.
+- Current reset token koşullu update ile `usedAt` alır; `revokedAt` null kalır.
+- Aynı user'a ait diğer unused/unrevoked password reset tokenlar revoke edilir.
+- User'ın tüm aktif sessionları `revokedAt` alır ve `revokeReason="PASSWORD_RESET"` olur.
+- Bu sessionlara bağlı aktif refresh tokenlar revoke edilir.
+- `AUTH_PASSWORD_RESET_COMPLETED` audit log yazılır.
+
+Current token consume update count `1` değilse transaction rollback olur ve endpoint generic invalid-token zarfını döner. İki veya daha fazla paralel aynı token kullanımında yalnız bir istek başarılı olabilir; diğerleri generic invalid alır ve ikinci audit kaydı oluşmaz.
+
+Session cache invalidation transaction commit sonrası best-effort yapılır; DB revoke source of truth olarak kalır. Eski access tokenlar session-active kontrolünde reddedilmelidir.
+
+`AUTH_PASSWORD_RESET_COMPLETED` audit metadata allowlist'i yalnız şu alanları içerir:
+
+```json
+{
+  "context": "WEB",
+  "resetMethod": "EMAIL_TOKEN",
+  "sessionsRevoked": true
+}
+```
+
+Raw token, tokenHash, password, email, request body, cookie, authorization header, raw IP, user-agent, session idleri, refresh token idleri veya revoke count audit metadata içine yazılmaz.
+
 ## DTO şekilleri
 
 ### PublicUser
@@ -556,7 +632,7 @@ Raw IP ve tam user-agent response içinde dönmez.
 | `AUTH_EMAIL_VERIFICATION_INVALID` | E-posta doğrulama tokenı yok, geçersiz, süresi dolmuş, revoked, used veya güvenli biçimde reddedilmelidir. |
 | `AUTH_RATE_LIMITED` | IP, user, session veya emailHash limitine takıldı. |
 | `AUTH_PASSWORD_POLICY_FAILED` | Yeni parola policy'yi karşılamıyor. |
-| `AUTH_RESET_INVALID` | Şifre sıfırlama tokenı geçersiz. |
+| `INVALID_OR_EXPIRED_RESET_TOKEN` | Şifre sıfırlama tokenı yok, geçersiz, expired, revoked, used veya güvenli biçimde reddedilmelidir. |
 
 ## Cookie sözleşmesi
 

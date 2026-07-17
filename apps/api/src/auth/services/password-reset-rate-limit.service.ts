@@ -6,9 +6,19 @@ export type PasswordResetRateLimitInput = {
   requestId: string;
 };
 
+export type ResetPasswordRateLimitInput = {
+  tokenHash: string;
+  clientIp: string;
+  requestId: string;
+};
+
 @Injectable()
 export class PasswordResetRateLimitService {
   async consumeForgotPasswordAttempt(_input: PasswordResetRateLimitInput): Promise<void> {
     // Sprint 4F will attach the Redis-backed forgot-password limiter at this boundary.
+  }
+
+  async consumeResetPasswordAttempt(_input: ResetPasswordRateLimitInput): Promise<void> {
+    // Sprint 4F will attach the Redis-backed reset-password limiter at this boundary.
   }
 }

@@ -185,6 +185,21 @@ Sprint 4E.1 tamamlananlar:
 - Forgot-password access token, refresh token, session, Set-Cookie, reset-password, password change veya session revoke üretmez.
 - Unit ve HTTP/controller testleri token secrecy, rollback, validation, concurrency, delivery failure ve enumeration davranışını kapsar.
 
+Sprint 4E.2 tamamlananlar:
+
+- `POST /auth/reset-password` endpointi eklendi; publictir ve yalnız body `token` ile `newPassword` alanlarını kabul eder.
+- Reset token trim/normalize/lowercase yapılmadan opaque ve case-sensitive kabul edilir; query/header/cookie/authorization içinden token okunmaz.
+- Token hash lookup yalnız `PasswordResetToken` tablosunda yapılır; email verification tokenları reset token olarak kabul edilmez.
+- Token-state ve user-state hataları dışarıda ayrıştırılmaz; unknown, expired, revoked, used, user missing, disabled, unverified ve concurrent consume yarışı aynı `INVALID_OR_EXPIRED_RESET_TOKEN` zarfını döner.
+- Her valid-format request reset-password rate-limit boundary'sinden raw token yerine `tokenHash`, client IP ve requestId ile geçer; gerçek Redis limiter Sprint 4F kapsamındadır.
+- Yeni parola register ile aynı `PasswordService` politikasından geçer; hash transaction dışında üretilir, hash/policy hatasında token consume, session revoke veya audit oluşmaz.
+- Transaction içinde token hash scoped advisory lock alınır; lock key `auth-password-reset-consume:<tokenHash>` biçimindedir ve raw token içermez.
+- Current reset token koşullu update ile `usedAt` alır, `revokedAt` null kalır; update count `1` değilse transaction rollback olur ve generic invalid döner.
+- Aynı kullanıcıya ait diğer unused/unrevoked reset tokenlar revoke edilir; used/revoked tokenlar ve başka kullanıcı tokenları etkilenmez.
+- Başarılı reset tüm aktif sessionları `revokeReason="PASSWORD_RESET"` ile revoke eder, bağlı aktif refresh tokenları revoke eder ve session cache invalidation commit sonrası best-effort yapılır.
+- `AUTH_PASSWORD_RESET_COMPLETED` audit metadata allowlist'i `context`, `resetMethod` ve `sessionsRevoked` alanlarıyla sınırlandırıldı.
+- Unit ve HTTP/controller testleri valid reset, invalid variants, body-only token, malformed body, weak password, replay/concurrency, rollback ve leakage davranışını kapsar.
+
 ## Sprint 4F - Rate limit, audit log ve security hardening
 
 | Alan | Detay |

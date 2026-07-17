@@ -49,6 +49,17 @@ Bu plan Sprint 4B ve sonrası auth uygulaması için beklenen test kapsamını t
 | Forgot password rollback | Token create, audit create veya transaction hata verirse eski token revoke edilmiş kalmaz, delivery çağrılmaz ve response generic 202 kalır. |
 | Forgot password delivery failure | Delivery hata verse bile response generic 202 kalır; committed token ve audit geri alınmaz. |
 | Forgot password advisory lock | User-scoped `auth-password-reset:<userId>` lock çağrılır ve aynı user için concurrent reset istekleri serialize edilir. |
+| Reset password body-only token | Token yalnız request body içinden kabul edilir; query/header/cookie/authorization tokenları yok sayılır. |
+| Reset password token validation | Token trim/normalize edilmez; whitespace, control character, kısa, uzun, array/object/primitive ve extra field payloadları reddedilir. |
+| Reset password generic invalid token | Unknown, expired, revoked, used, missing-user, disabled-user, unverified-user ve race-consumed token aynı `INVALID_OR_EXPIRED_RESET_TOKEN` zarfını alır. |
+| Reset password purpose separation | `EmailVerificationToken` hash'i reset token olarak kabul edilmez. |
+| Reset password password hashing boundary | Yeni parola hash'i transaction dışında üretilir; hash/policy hatasında token consume, session revoke veya audit oluşmaz. |
+| Reset password atomic consume | Current reset token koşullu update ile `usedAt` alır ve `revokedAt` null kalır; update count `1` değilse rollback olur. |
+| Reset password peer token revoke | Aynı user'a ait diğer unused/unrevoked reset tokenlar revoke edilir; used/revoked tokenlar ve başka user tokenları etkilenmez. |
+| Reset password session revoke | Başarılı reset tüm aktif sessionları `PASSWORD_RESET` sebebiyle revoke eder ve bağlı active refresh tokenları revoke eder. |
+| Reset password advisory lock | Token hash scoped `auth-password-reset-consume:<tokenHash>` lock çağrılır; raw token lock key içine girmez. |
+| Reset password concurrent consume | Aynı tokenla 2 veya 3 paralel istekte yalnız biri başarılı olur, diğerleri generic invalid alır ve tek audit oluşur. |
+| Reset password rollback | Password update, token consume, peer token revoke, session revoke, refresh revoke, audit create veya transaction hatasında tüm mutationlar rollback olur. |
 | Expired token | Süresi dolmuş token reddedilir. |
 | Revoked session | Revoked session ile access/refresh kabul edilmez. |
 | Disabled user | `isActive=false` kullanıcı login, refresh ve authenticated request yapamaz. |
@@ -113,7 +124,12 @@ Bu plan Sprint 4B ve sonrası auth uygulaması için beklenen test kapsamını t
 | Forgot password delivery failure | Delivery failure generic 202 döner, token/audit committed kalır ve raw token response'a sızmaz. |
 | Forgot password concurrent | 3 paralel request 202 döner; sonunda yalnız 1 active unused reset token kalır, audit/delivery count sözleşmeye uygundur. |
 | Forgot password isolation | Başka kullanıcının reset tokenları revoke edilmez. |
-| Password reset | Yeni parola set edilir, reset token kullanılır, sessionlar revoke edilir. |
+| Reset password success | Geçerli body ile 200 `{ status: "success", message }` döner, password hash değişir, current token `usedAt` alır, peer reset tokenlar revoke edilir ve tüm session/refresh tokenlar revoke edilir. |
+| Reset password invalid variants | Unknown, expired, revoked, used, disabled, unverified ve missing-user durumları aynı 400 `INVALID_OR_EXPIRED_RESET_TOKEN` zarfını döner. |
+| Reset password body-only token | Query/header/cookie/authorization ile gelen token kabul edilmez; body token yoksa validation 400 döner. |
+| Reset password malformed body | Missing token/password, empty/whitespace token, control character, array, primitive, nested object, malformed JSON ve extra field 400 alır; raw body response'a yansımaz. |
+| Reset password weak password | Password policy hatasında token kullanılmaz, session/refresh revoke edilmez ve audit oluşmaz. |
+| Reset password concurrent | Aynı tokenla iki paralel HTTP isteğinde yalnız biri 200 alır; diğeri generic invalid alır ve tek audit oluşur. |
 | Session listing | Kullanıcı yalnız kendi session özetlerini görür. |
 | Session listing current-first | Current session `isCurrent=true` ile ilk sırada, diğerleri `lastSeenAt` descending döner. |
 | Session listing safe fields | `tokenFamilyId`, `ipHash`, `userAgentHash`, refresh tokenlar, raw IP, raw user-agent ve `userId` dönmez. |
@@ -164,6 +180,10 @@ Bu plan Sprint 4B ve sonrası auth uygulaması için beklenen test kapsamını t
 | Forgot password SQL/advisory lock injection | Advisory lock query parameterized bind kullanır; userId raw SQL stringine interpolate edilmez. |
 | Forgot password transaction enumeration | Eligible user transaction failure durumunda unknown user'dan farklı status üretilmez; delivery çağrısı yapılmaz. |
 | Forgot password out-of-order delivery risk | Concurrent delivery çağrıları sonunda tek active token kalır; önceki e-postanın geç teslim riski dokümante edilir ve Sprint 4F limiter/provider kuyruğuna bırakılır. |
+| Reset password leakage | Response, audit metadata, validation errors ve rate-limit inputları raw reset token, tokenHash, password, cookie, authorization header, raw IP, session id, refresh token id veya DB detayı içermez. |
+| Reset password replay resistance | Kullanılmış reset token tekrar gönderildiğinde session veya password ikinci kez değişmez, generic invalid döner ve ikinci audit oluşmaz. |
+| Reset password SQL/advisory lock injection | Advisory lock query parameterized bind kullanır; lock subject tokenHash'tir ve raw token SQL stringine interpolate edilmez. |
+| Reset password access-token invalidation | Başarılı reset sonrası eski access tokenlar session-active kontrolünde reddedilir. |
 | Development cookie policy | Localhost prefix'siz ve `Secure=false` çalışabilir; production validation bunu production'da reddeder. |
 | XSS taşıyan displayName veya deviceName | Değerler encode edilir, script çalışmaz, loglara raw zararlı içerik yazılmaz. |
 | Yetki yükseltme | Request body ile `role=ADMIN` gönderilse bile rol değişmez. |
@@ -182,6 +202,7 @@ Bu plan Sprint 4B ve sonrası auth uygulaması için beklenen test kapsamını t
 | Verify-email manuel akış | Geçerli, ikinci kullanım, uydurma, expired, revoked ve paralel verify davranışları aynı local fixture düzeniyle doğrulanır. |
 | Resend verification manuel akış | Register sonrası resend 202 döner; eski token revoked, yeni hash token created, unknown/verified/disabled 202 ve 3 concurrent request sonunda 1 active token doğrulanır. |
 | Forgot password manuel akış | Verified kullanıcı için 202, eski reset token revoke, yeni hash token created; unknown/disabled/unverified 202 ve 3 concurrent request sonunda 1 active reset token doğrulanır. |
+| Reset password manuel akış | Fixture reset token ile 200 response, password hash değişimi, token `usedAt`, peer token revoke, session/refresh revoke, replay/expired/revoked/unknown generic 400 ve 2 concurrent requestte 1 success/1 invalid doğrulanır. |
 | Saat farkı | UTC expiry ve clock skew toleransı kullanıcıyı gereksiz kırmaz; server expiry esas alınır. |
 | Redis kapalı | Fallback limiter devreye girer; health degraded ve internal metric görünür olur. |
 | PostgreSQL kapalı | Auth endpointleri kontrollü hata döner; health degraded döner. |

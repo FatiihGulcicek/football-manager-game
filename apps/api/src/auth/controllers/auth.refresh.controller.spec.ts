@@ -21,6 +21,7 @@ import { RefreshRateLimitService } from '../services/refresh-rate-limit.service'
 import { RefreshService } from '../services/refresh.service';
 import { RefreshTokenService } from '../services/refresh-token.service';
 import { RegisterService } from '../services/register.service';
+import { ResetPasswordService } from '../services/reset-password.service';
 import { SessionService } from '../services/session.service';
 import { TokenHashService } from '../services/token-hash.service';
 import { AuthController } from './auth.controller';
@@ -663,6 +664,12 @@ async function createAuthRefreshApplication(
         provide: ForgotPasswordService,
         useValue: {
           forgotPassword: vi.fn()
+        }
+      },
+      {
+        provide: ResetPasswordService,
+        useValue: {
+          resetPassword: vi.fn()
         }
       },
       {
