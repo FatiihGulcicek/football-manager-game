@@ -5,6 +5,7 @@ import { AuthConfig } from '../../config/auth.config';
 import { PrismaService } from '../../database/prisma.service';
 import { AUTH_AUDIT_EVENTS } from '../constants/auth-audit-events';
 import { REGISTER_ACCEPTED_RESPONSE } from '../dto/register.dto';
+import { AuthRateLimitExceededException } from '../errors/auth-rate-limit-exceeded.exception';
 import { PasswordService, PasswordValidationError } from './password.service';
 import { RegisterRateLimitService } from './register-rate-limit.service';
 import { RegisterService } from './register.service';
@@ -48,6 +49,29 @@ describe('RegisterService', () => {
       }),
       select: { id: true }
     });
+  });
+
+  it('should consume rate limits before hashing passwords or writing records', async () => {
+    const { passwordService, prisma, rateLimitService, transaction, service } = createService();
+    rateLimitService.consumeRegisterAttempt.mockRejectedValue(
+      new AuthRateLimitExceededException('req-register', 60)
+    );
+
+    await expect(
+      service.register(createRegisterDto(), {
+        requestId: 'req-register',
+        clientIp: '203.0.113.20'
+      })
+    ).rejects.toBeInstanceOf(AuthRateLimitExceededException);
+
+    expect(rateLimitService.consumeRegisterAttempt).toHaveBeenCalledWith({
+      email: 'user@example.invalid',
+      clientIp: '203.0.113.20',
+      requestId: 'req-register'
+    });
+    expect(passwordService.hashPassword).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(transaction.user.create).not.toHaveBeenCalled();
   });
 
   it('should create a valid registration in one transaction', async () => {

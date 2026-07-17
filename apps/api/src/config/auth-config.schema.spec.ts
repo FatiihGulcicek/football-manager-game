@@ -59,4 +59,37 @@ describe('auth config schema', () => {
       })
     ).toThrow('Use either TRUST_PROXY_HOPS or TRUST_PROXY_CIDRS, not both');
   });
+
+  it('should expose auth rate-limit defaults and env overrides', () => {
+    const config = loadAuthConfig({
+      NODE_ENV: 'development',
+      AUTH_RATE_LIMIT_LOGIN_IP_LIMIT: '12',
+      AUTH_RATE_LIMIT_LOGIN_IP_WINDOW_SECONDS: '120'
+    });
+
+    expect(config.rateLimits?.login.ip).toEqual({
+      limit: 12,
+      windowSeconds: 120
+    });
+    expect(config.rateLimits?.register.ip).toEqual({
+      limit: 10,
+      windowSeconds: 3_600
+    });
+  });
+
+  it('should reject invalid auth rate-limit values', () => {
+    expect(() =>
+      loadAuthConfig({
+        NODE_ENV: 'development',
+        AUTH_RATE_LIMIT_LOGIN_IP_LIMIT: '0'
+      })
+    ).toThrow('AUTH_RATE_LIMIT_LOGIN_IP_LIMIT must be a positive integer');
+
+    expect(() =>
+      loadAuthConfig({
+        NODE_ENV: 'development',
+        AUTH_RATE_LIMIT_LOGIN_IP_WINDOW_SECONDS: '86401'
+      })
+    ).toThrow('AUTH_RATE_LIMIT_LOGIN_IP_WINDOW_SECONDS must be 86400 or less');
+  });
 });

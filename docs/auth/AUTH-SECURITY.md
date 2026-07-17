@@ -153,7 +153,7 @@ Maksimum uzunluk, password hashing kaynak tüketimini kontrol altında tutmak i�
 - Token consume işlemi `usedAt IS NULL`, `revokedAt IS NULL` ve `expiresAt > now` koşullarıyla atomic update kullanır; paralel iki istekte yalnız biri başarılı olabilir.
 - Başarılı doğrulama transaction içinde `User.emailVerifiedAt` günceller, tokenı used yapar, aynı kullanıcıya ait diğer unused verification tokenları revoke eder ve `AUTH_EMAIL_VERIFIED` audit kaydı oluşturur.
 - Audit metadata allowlist yalnız `context` ve `verificationMethod` alanlarını içerir; token, tokenHash, email, IP, cookie ve authorization header metadata'ya girmez.
-- Geçersiz token denemeleri sınırsız audit log üretmez; Sprint 4F rate-limit/metric katmanı verify-email boundary'sine bağlanacaktır.
+- Geçersiz token denemeleri sınırsız audit log üretmez; Redis rate-limit boundary verify-email IP ve token-hash bucketlarını kullanır.
 - E-posta doğrulama session oluşturmaz, access/refresh token üretmez, session revoke etmez ve login işlemi yapmaz.
 
 ## Resend email verification
@@ -169,9 +169,9 @@ Maksimum uzunluk, password hashing kaynak tüketimini kontrol altında tutmak i�
 - Aynı user için concurrent resend istekleri PostgreSQL advisory transaction lock ile serialize edilir; 3 paralel istek sonunda yalnız son token active unused kalır.
 - Advisory lock raw SQL parametreli bind ile çağrılır; lock key `auth-email-resend:<userId>` biçimindedir ve SQL injection yüzeyi oluşturmaz. Bu karar PostgreSQL'e özeldir.
 - Mail delivery transaction dışında `EmailVerificationDeliveryService` abstraction'ı ile yapılır; default implementation no-op'tur ve gerçek SMTP/provider entegrasyonu yapmaz.
-- Delivery failure response'a sızmaz; endpoint 202 döner. Bu tokenın DB'de kalıp mailin iletilememesi riskini doğurur ve Sprint 4F/provider retry-metric tasarımında tekrar incelenmelidir.
+- Delivery failure response'a sızmaz; endpoint 202 döner. Bu tokenın DB'de kalıp mailin iletilememesi riski sonraki provider retry-metric tasarımında tekrar incelenmelidir.
 - Audit metadata allowlist yalnız `context: WEB` ve `verificationMethod: TOKEN_RESEND` alanlarını içerir; raw token, tokenHash, email, request body, IP, cookie, authorization header, expiresAt ve token idleri yazılmaz.
-- Rate-limit boundary no-op durumdadır; Sprint 4F Redis limiter IP, normalized email hash ve endpoint keylerini gerçek limite bağlamalıdır.
+- Rate-limit boundary Redis fixed-window limiter'a bağlıdır; IP ve normalized email hash bucketları kullanılır.
 
 ## Forgot password request
 
@@ -189,10 +189,10 @@ Maksimum uzunluk, password hashing kaynak tüketimini kontrol altında tutmak i�
 - Transaction, advisory lock, token create veya audit create hata verirse response yine generic 202 kalır ve delivery çağrılmaz. Böylece eligible kullanıcı için 500, unknown kullanıcı için 202 timing/status ayrımı oluşmaz.
 - İlk candidate lookup DB outage durumunda normal altyapı hatası dönebilir; bu endpoint DB tamamen kapalıyken hesap varlığı saklamak için fake success üretmez.
 - Mail delivery transaction dışında `PasswordResetDeliveryService` abstraction'ı ile yapılır; default implementation no-op'tur ve gerçek SMTP/provider entegrasyonu yapmaz.
-- Delivery failure response'a sızmaz; endpoint 202 döner. Token ve audit committed kalır. Bu tokenın DB'de kalıp mailin iletilememesi riskini Sprint 4F/provider retry-metric tasarımında tekrar incelenmelidir.
+- Delivery failure response'a sızmaz; endpoint 202 döner. Token ve audit committed kalır. Bu tokenın DB'de kalıp mailin iletilememesi riski sonraki provider retry-metric tasarımında tekrar incelenmelidir.
 - Çok paralel requestlerde delivery transaction dışı olduğu için önceki reset e-postası son e-postadan sonra teslim edilebilir; bu out-of-order risk rate limit ve provider kuyruğu ile azaltılmalıdır.
 - Audit metadata allowlist yalnız `context: WEB` ve `resetMethod: EMAIL_TOKEN` alanlarını içerir; raw token, tokenHash, email, request body, IP, cookie, authorization header, user-agent, expiresAt ve token idleri yazılmaz.
-- Rate-limit boundary no-op durumdadır; Sprint 4F Redis limiter IP, normalized email hash ve endpoint keylerini gerçek limite bağlamalıdır.
+- Rate-limit boundary Redis fixed-window limiter'a bağlıdır; IP ve normalized email hash bucketları kullanılır.
 - Forgot-password request parola değiştirmez, session revoke etmez, refresh token revoke etmez, access token üretmez ve Set-Cookie yazmaz; bunlar reset-password/change-password sprintlerinin konusudur.
 
 ## Reset password consume
@@ -202,7 +202,7 @@ Maksimum uzunluk, password hashing kaynak tüketimini kontrol altında tutmak i�
 - Reset token trim/normalize/lowercase yapılmaz; opaque ve case-sensitive kalır.
 - Token formatı minimum 32, maksimum 512 karakter ve base64url uyumlu karakterlerle sınırlıdır; whitespace, tab, CR/LF, null byte ve kontrol karakterleri reddedilir.
 - Raw token DB, response, audit metadata, rate-limit inputu, lock key veya loglara yazılmaz; yalnız `TokenHashService.hashToken()` için bellekte kullanılır.
-- Rate-limit boundary raw token yerine `tokenHash`, normalized client IP ve requestId alır. Redis destekli gerçek limit Sprint 4F kapsamındadır.
+- Rate-limit boundary raw token yerine `tokenHash`, normalized client IP ve requestId alır; Redis key içinde purpose-separated identifier hash kullanılır.
 - Lookup yalnız `PasswordResetToken.tokenHash` ile yapılır; `EmailVerificationToken` kayıtları purpose separation gereği kabul edilmez.
 - Token bulunamadı, expired, revoked, used, hash eşleşmedi, user missing, user disabled, user unverified veya concurrent consume yarışı durumları aynı 400 `INVALID_OR_EXPIRED_RESET_TOKEN` zarfına döner.
 - Yeni parola hash'i transaction dışında üretilir. Password policy veya hash hatasında token consumed olmaz, session/refresh token revoke edilmez ve audit yazılmaz.
@@ -274,19 +274,33 @@ Katmanlı yaklaşım:
 - Session bazlı refresh limiti.
 - Global auth endpoint koruması.
 
-Redis rate limit için ana store'dur.
+Redis rate limit için ana store'dur. Sprint 4F.1 uygulaması fixed-window counter algoritmasını atomik Lua script ile çalıştırır; sayaç artışı ve TTL ataması aynı Redis komutunda yapılır.
+
+Varsayılan public auth limitleri:
+
+- Register: IP 10/saat, email 5/saat.
+- Login: IP 30/15 dakika, account 10/15 dakika, IP/account 5/15 dakika.
+- Refresh: IP 120/15 dakika, session 60/15 dakika.
+- Forgot password: IP 10/saat, account 3/saat.
+- Reset password: IP 20/saat, token 5/15 dakika.
+- Resend verification: IP 10/saat, account 3/saat.
+- Verify email: IP 30/saat, token 5/15 dakika.
+
+Tüm limit ve pencere değerleri `AUTH_RATE_LIMIT_*` environment anahtarlarıyla değiştirilebilir ve config validation pozitif integer + üst sınır kontrolü uygular.
+
+Redis key güvenliği:
+
+- Key formatı `auth:rl:v1:<action>:<identifierHash>` olur.
+- Identifier hash `TokenHashService` üzerinden purpose-separated input ile üretilir.
+- Raw email, normalized email, raw IP, raw token, refresh cookie, password, full user-agent veya DB hata detayı Redis key, response veya loglara yazılmaz.
+- 429 response yalnız `AUTH_RATE_LIMITED`, güvenli mesaj, `requestId` ve `Retry-After` header'ı içerir.
 
 ### Redis kesinti politikası
 
-- Redis down olduğunda process-local in-memory sliding-window fallback kullanılır.
-- Fallback limitleri normal Redis limitlerinden daha muhafazakardır.
-- Login, admin-login, refresh, reset-password ve change-password için daha sıkı fallback uygulanır.
-- Register, forgot-password ve resend-verification için daha gevşek ama sınırlı fallback uygulanır.
-- Tam fail-open yapılmaz.
-- Tam fail-closed yapılmaz.
-- Health status degraded olur.
-- Internal log/metric ile fallback mode görünür olmalıdır.
-- Çok instance ortamında process-local fallback sınırlı koruma sağlar; bu açıkça operasyon dokümanında belirtilmelidir.
+- Redis down olduğunda veya Redis sonucu beklenen `{count, ttl}` biçiminde değilse auth rate limiter fail-open davranır.
+- Fail-open sırasında endpoint akışı devam eder; Redis exception veya internal detay response'a sızmaz.
+- Safe internal log yalnız action ve genel sebep içerir; identifier, token, cookie, IP veya account bilgisi loglanmaz.
+- Bu sprintte process-local fallback uygulanmamıştır. Çok instance production ortamında Redis availability ve alerting operasyonel gereksinimdir.
 
 ### Progressive delay
 
@@ -373,6 +387,6 @@ Uygulama DB rolünün mümkünse `AuditLog` için INSERT-only olması hedeflenir
 - Rol sadece DB'deki `User.role` ve imzalı server tokenındaki minimum claim ile değerlendirilir.
 - Login `context=ADMIN` yalnız admin UI yüzeyini ve risk metadata'sını belirtir; kullanıcıya admin rolü kazandırmaz.
 - USER rolündeki kullanıcı ADMIN context ile login olabilir, ancak admin endpointleri role guard nedeniyle 403 döner.
-- Sprint 4F rate limit ve monitoring sistemi ADMIN context'i daha sıkı limit grubu veya risk sinyali olarak kullanabilir.
+- Rate limit ve monitoring sistemi ADMIN context'i daha sıkı limit grubu veya risk sinyali olarak kullanabilir.
 - Yetki gerektiren endpointler role guard ile korunur.
 - `SUPER_ADMIN` işlemleri ayrıca audit log ve mümkünse ek onay gerektirir.

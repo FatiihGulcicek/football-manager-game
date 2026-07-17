@@ -8,6 +8,7 @@ import {
   AUTH_EMAIL_VERIFICATION_INVALID_CODE,
   AUTH_EMAIL_VERIFICATION_INVALID_MESSAGE
 } from '../errors/auth-email-verification-invalid.exception';
+import { AuthRateLimitExceededException } from '../errors/auth-rate-limit-exceeded.exception';
 import { EmailVerificationRateLimitService } from './email-verification-rate-limit.service';
 import { EmailVerificationService } from './email-verification.service';
 import { TokenHashService } from './token-hash.service';
@@ -80,6 +81,30 @@ describe('EmailVerificationService', () => {
     });
     expect(JSON.stringify(transaction.auditLog.create.mock.calls)).not.toContain(TOKEN_INPUT);
     expect(JSON.stringify(transaction.auditLog.create.mock.calls)).not.toContain(TOKEN_HASH);
+  });
+
+  it('should consume rate limits before token lookup or token consumption', async () => {
+    const { rateLimitService, transaction, service } = createService();
+    rateLimitService.consumeVerifyEmailAttempt.mockRejectedValue(
+      new AuthRateLimitExceededException('req-verify-rate', 60)
+    );
+
+    await expect(
+      service.verifyEmail(
+        { token: TOKEN_INPUT },
+        { requestId: 'req-verify-rate', clientIp: '198.51.100.30' },
+        NOW
+      )
+    ).rejects.toBeInstanceOf(AuthRateLimitExceededException);
+
+    expect(rateLimitService.consumeVerifyEmailAttempt).toHaveBeenCalledWith({
+      tokenHash: TOKEN_HASH,
+      clientIp: '198.51.100.30',
+      requestId: 'req-verify-rate'
+    });
+    expect(transaction.emailVerificationToken.findUnique).not.toHaveBeenCalled();
+    expect(transaction.emailVerificationToken.updateMany).not.toHaveBeenCalled();
+    expect(transaction.auditLog.create).not.toHaveBeenCalled();
   });
 
   it('should consume a valid unused token even when the user is already verified', async () => {

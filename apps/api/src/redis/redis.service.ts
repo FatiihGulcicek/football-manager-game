@@ -6,6 +6,11 @@ export type RedisClientLike = {
   status?: string;
   connect?: () => Promise<void>;
   ping: () => Promise<string>;
+  eval?: (
+    script: string,
+    numberOfKeys: number,
+    ...args: Array<string | number>
+  ) => Promise<unknown>;
   quit: () => Promise<unknown>;
 };
 
@@ -14,9 +19,7 @@ export class RedisService implements OnModuleDestroy {
   constructor(@Inject(REDIS_CLIENT) private readonly client: RedisClientLike) {}
 
   async ping(): Promise<'up'> {
-    if (this.client.status === 'wait' && this.client.connect) {
-      await this.client.connect();
-    }
+    await this.connectIfWaiting();
 
     const response = await this.client.ping();
 
@@ -27,7 +30,27 @@ export class RedisService implements OnModuleDestroy {
     return 'up';
   }
 
+  async eval(
+    script: string,
+    numberOfKeys: number,
+    ...args: Array<string | number>
+  ): Promise<unknown> {
+    await this.connectIfWaiting();
+
+    if (!this.client.eval) {
+      throw new Error('Redis client does not support EVAL');
+    }
+
+    return this.client.eval(script, numberOfKeys, ...args);
+  }
+
   async onModuleDestroy() {
     await this.client.quit();
+  }
+
+  private async connectIfWaiting(): Promise<void> {
+    if (this.client.status === 'wait' && this.client.connect) {
+      await this.client.connect();
+    }
   }
 }

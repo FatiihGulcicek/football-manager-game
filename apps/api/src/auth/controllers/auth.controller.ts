@@ -1,4 +1,14 @@
-import { Body, Controller, HttpCode, HttpStatus, Inject, Post, Req, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  HttpCode,
+  HttpStatus,
+  Inject,
+  Post,
+  Req,
+  Res,
+  UseFilters
+} from '@nestjs/common';
 import { LoginContext } from '@football-manager/database';
 import { randomUUID } from 'crypto';
 import { AUTH_CONFIG, AuthConfig } from '../../config/auth.config';
@@ -22,6 +32,7 @@ import { VerifyEmailDto, VerifyEmailResponseDto } from '../dto/verify-email.dto'
 import { AuthLogoutInvalidBodyException } from '../errors/auth-logout-invalid-body.exception';
 import { AuthRefreshException } from '../errors/auth-refresh.exception';
 import { AuthRefreshInvalidBodyException } from '../errors/auth-refresh-invalid-body.exception';
+import { AuthRateLimitExceptionFilter } from '../filters/auth-rate-limit-exception.filter';
 import {
   EmailVerificationResendService,
   ResendVerificationRequestContext
@@ -34,10 +45,11 @@ import {
 import { LoginRequestContext, LoginService } from '../services/login.service';
 import { LogoutRequestContext, LogoutService } from '../services/logout.service';
 import { RefreshRequestContext, RefreshService } from '../services/refresh.service';
-import { RegisterService } from '../services/register.service';
+import { RegisterRequestContext, RegisterService } from '../services/register.service';
 import { ResetPasswordRequestContext, ResetPasswordService } from '../services/reset-password.service';
 
 @Controller('auth')
+@UseFilters(AuthRateLimitExceptionFilter)
 export class AuthController {
   constructor(
     @Inject(RegisterService) private readonly registerService: RegisterService,
@@ -57,8 +69,11 @@ export class AuthController {
 
   @Post('register')
   @HttpCode(HttpStatus.ACCEPTED)
-  async register(@Body() dto: RegisterDto): Promise<RegisterResponseDto> {
-    return this.registerService.register(dto);
+  async register(
+    @Body() dto: RegisterDto,
+    @Req() request: AuthHttpRequest
+  ): Promise<RegisterResponseDto> {
+    return this.registerService.register(dto, createRegisterRequestContext(request, this.config));
   }
 
   @Post('verify-email')
@@ -68,7 +83,8 @@ export class AuthController {
     @Req() request: AuthHttpRequest
   ): Promise<VerifyEmailResponseDto> {
     return this.emailVerificationService.verifyEmail(dto, {
-      requestId: readHeader(request, 'x-request-id')
+      requestId: readHeader(request, 'x-request-id'),
+      clientIp: resolveClientIp(request, this.config)
     });
   }
 
@@ -199,6 +215,16 @@ function createLoginRequestContext(
     deviceType,
     browser,
     operatingSystem
+  };
+}
+
+function createRegisterRequestContext(
+  request: AuthHttpRequest,
+  config: AuthConfig
+): RegisterRequestContext {
+  return {
+    requestId: readHeader(request, 'x-request-id'),
+    clientIp: resolveClientIp(request, config)
   };
 }
 
