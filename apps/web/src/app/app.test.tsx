@@ -1,0 +1,81 @@
+import { describe, expect, it } from 'vitest';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { DashboardView } from '../features/dashboard/components/dashboard-view';
+import { MobileNavigation } from '../features/dashboard/components/mobile-navigation';
+import { Sidebar } from '../features/dashboard/components/sidebar';
+import { createDashboardViewModelFromClub } from '../features/dashboard/data/dashboard-data';
+import { emptyDashboard, mockDashboard } from '../features/dashboard/data/mock-dashboard';
+
+describe('Dashboard foundation', () => {
+  it('renders the core dashboard sections', () => {
+    const html = renderToStaticMarkup(<DashboardView viewModel={mockDashboard} />);
+
+    expect(html).toContain('Club news');
+    expect(html).toContain('Board');
+    expect(html).toContain('Upcoming match');
+    expect(html).toContain('League standings');
+    expect(html).toContain('Featured players');
+    expect(html).toContain('Calendar');
+  });
+
+  it('marks the active dashboard navigation item', () => {
+    const html = renderToStaticMarkup(<Sidebar activePath="/dashboard" />);
+
+    expect(html).toContain('aria-current="page"');
+    expect(html).toContain('Dashboard');
+  });
+
+  it('renders mobile navigation without browser-only APIs', () => {
+    const html = renderToStaticMarkup(<MobileNavigation activePath="/dashboard" />);
+
+    expect(html).toContain('aria-label="Mobile navigation"');
+    expect(html).toContain('Dashboard');
+  });
+
+  it('renders financial values as formatted strings', () => {
+    const html = renderToStaticMarkup(<DashboardView viewModel={mockDashboard} />);
+
+    expect(html).toContain('€42,580,000.00');
+    expect(html).toContain('€8,750,000.00');
+    expect(html).toContain('€615,000.00');
+  });
+
+  it('renders empty states for future-domain data', () => {
+    const html = renderToStaticMarkup(<DashboardView viewModel={emptyDashboard} />);
+
+    expect(html).toContain('No club news');
+    expect(html).toContain('No fixture scheduled');
+    expect(html).toContain('No league table yet');
+    expect(html).toContain('No calendar items');
+  });
+
+  it('does not expose internal manager identifiers from club API data', () => {
+    const viewModel = createDashboardViewModelFromClub({
+      id: 'club-internal-id',
+      currentManagerProfileId: 'manager-profile-internal-id',
+      name: 'Northbridge FC',
+      shortName: 'NBR',
+      status: 'ACTIVE',
+      foundedYear: 1998,
+      reputation: 6840,
+      fanBase: 42800,
+      stadiumName: 'Northbridge Park',
+      stadiumCapacity: 31400,
+      primaryColor: '#2DD4BF',
+      secondaryColor: '#F8D66D',
+      balance: '42580000.00',
+      transferBudget: '8750000.00',
+      wageBudget: '615000.00',
+      currencyCode: 'EUR'
+    });
+    const html = renderToStaticMarkup(<DashboardView viewModel={viewModel} />);
+
+    expect(html).not.toContain('manager-profile-internal-id');
+    expect(html).not.toContain('club-internal-id');
+  });
+
+  it('renders the dashboard on the server without window access', () => {
+    expect(() => renderToStaticMarkup(<DashboardView viewModel={mockDashboard} />)).not.toThrow();
+  });
+});
