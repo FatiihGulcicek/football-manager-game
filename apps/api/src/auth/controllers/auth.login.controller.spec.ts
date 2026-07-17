@@ -11,6 +11,7 @@ import { AUTH_AUDIT_EVENTS } from '../constants/auth-audit-events';
 import { AccessTokenService } from '../services/access-token.service';
 import { EmailVerificationResendService } from '../services/email-verification-resend.service';
 import { EmailVerificationService } from '../services/email-verification.service';
+import { ForgotPasswordService } from '../services/forgot-password.service';
 import { LoginRateLimitService } from '../services/login-rate-limit.service';
 import { LoginService } from '../services/login.service';
 import { LogoutService } from '../services/logout.service';
@@ -470,6 +471,12 @@ async function createAuthLoginApplication(
         provide: EmailVerificationResendService,
         useValue: {
           resendVerification: vi.fn()
+        }
+      },
+      {
+        provide: ForgotPasswordService,
+        useValue: {
+          forgotPassword: vi.fn()
         }
       },
       {

@@ -9,6 +9,7 @@ import {
   RefreshCookieResponse,
   setRefreshCookie
 } from '../cookies/refresh-cookie';
+import { ForgotPasswordDto, ForgotPasswordResponseDto } from '../dto/forgot-password.dto';
 import { LoginDto, LoginResponseDto } from '../dto/login.dto';
 import { RefreshResponseDto } from '../dto/refresh.dto';
 import { RegisterDto, RegisterResponseDto } from '../dto/register.dto';
@@ -25,6 +26,10 @@ import {
   ResendVerificationRequestContext
 } from '../services/email-verification-resend.service';
 import { EmailVerificationService } from '../services/email-verification.service';
+import {
+  ForgotPasswordRequestContext,
+  ForgotPasswordService
+} from '../services/forgot-password.service';
 import { LoginRequestContext, LoginService } from '../services/login.service';
 import { LogoutRequestContext, LogoutService } from '../services/logout.service';
 import { RefreshRequestContext, RefreshService } from '../services/refresh.service';
@@ -38,6 +43,8 @@ export class AuthController {
     private readonly emailVerificationService: EmailVerificationService,
     @Inject(EmailVerificationResendService)
     private readonly emailVerificationResendService: EmailVerificationResendService,
+    @Inject(ForgotPasswordService)
+    private readonly forgotPasswordService: ForgotPasswordService,
     @Inject(LoginService) private readonly loginService: LoginService,
     @Inject(RefreshService) private readonly refreshService: RefreshService,
     @Inject(LogoutService) private readonly logoutService: LogoutService,
@@ -70,6 +77,18 @@ export class AuthController {
     return this.emailVerificationResendService.resendVerification(
       dto,
       createResendVerificationRequestContext(request, this.config)
+    );
+  }
+
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.ACCEPTED)
+  async forgotPassword(
+    @Body() dto: ForgotPasswordDto,
+    @Req() request: AuthHttpRequest
+  ): Promise<ForgotPasswordResponseDto> {
+    return this.forgotPasswordService.forgotPassword(
+      dto,
+      createForgotPasswordRequestContext(request, this.config)
     );
   }
 
@@ -181,6 +200,16 @@ function createResendVerificationRequestContext(
   request: AuthHttpRequest,
   config: AuthConfig
 ): ResendVerificationRequestContext {
+  return {
+    requestId: readHeader(request, 'x-request-id'),
+    clientIp: resolveClientIp(request, config)
+  };
+}
+
+function createForgotPasswordRequestContext(
+  request: AuthHttpRequest,
+  config: AuthConfig
+): ForgotPasswordRequestContext {
   return {
     requestId: readHeader(request, 'x-request-id'),
     clientIp: resolveClientIp(request, config)
