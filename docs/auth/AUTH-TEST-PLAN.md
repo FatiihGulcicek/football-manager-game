@@ -29,6 +29,11 @@ Bu plan Sprint 4B ve sonrası auth uygulaması için beklenen test kapsamını t
 | Access token guard role mismatch | JWT role DB user role ile uyumsuzsa eski token reddedilir. |
 | Refresh rotation | Kullanılmış refresh token `usedAt` alır ve child token oluşturulur. |
 | Reuse detection | Grace window dışındaki kullanılmış token tekrar gelirse session revoke edilir. |
+| Email verification token hashing | Raw token `TokenHashService` ile hashlenir; lookup hash ile yapılır ve raw token audit/response'a girmez. |
+| Email verification atomic consume | Geçerli token `usedAt` alır, user `emailVerifiedAt` güncellenir ve diğer unused tokenlar revoke edilir. |
+| Email verification generic invalid | Unknown, expired, revoked, used token ve disabled user aynı `AUTH_EMAIL_VERIFICATION_INVALID` zarfını alır. |
+| Email verification already verified user | Geçerli unused token consumed edilir ve 200 verified response döner. |
+| Email verification concurrent consume | İki paralel istekte yalnız biri başarılı olur; ikinci generic invalid alır ve yalnız bir audit oluşur. |
 | Expired token | Süresi dolmuş token reddedilir. |
 | Revoked session | Revoked session ile access/refresh kabul edilmez. |
 | Disabled user | `isActive=false` kullanıcı login, refresh ve authenticated request yapamaz. |
@@ -71,7 +76,12 @@ Bu plan Sprint 4B ve sonrası auth uygulaması için beklenen test kapsamını t
 | Logout-all audit failure | Audit yazımı başarısız olsa bile revoke sonucu geri alınmaz. |
 | Logout-all transaction rollback | Refresh token revoke fail olursa yarım revoke başarı gibi raporlanmaz. |
 | Role change sonrası eski access token reddi | Role değiştiğinde tüm sessionlar revoke edilir; eski token 401 alır. |
-| Email verification | Geçerli token `emailVerifiedAt` set eder; yeni token üretimi önceki unused tokenları revoke eder. |
+| Email verification success | Geçerli token 200 `{ status: "verified" }` döner, `emailVerifiedAt` ve token `usedAt` dolar. |
+| Email verification second use | Aynı token ikinci kez kullanıldığında 400 `AUTH_EMAIL_VERIFICATION_INVALID` döner. |
+| Email verification invalid variants | Expired, revoked, used, unknown token ve disabled user aynı response'u döner. |
+| Email verification body-only token | Query/header token kabul edilmez; body dışından token gelirse consume yapılmaz. |
+| Email verification extra fields | `role`, `userId` gibi ek body alanları generic invalid ile reddedilir. |
+| Email verification no session issuance | Doğrulama access token, refresh token veya session oluşturmaz; kullanıcı sonra login yapar. |
 | Password reset | Yeni parola set edilir, reset token kullanılır, sessionlar revoke edilir. |
 | Session listing | Kullanıcı yalnız kendi session özetlerini görür. |
 | Session listing current-first | Current session `isCurrent=true` ile ilk sırada, diğerleri `lastSeenAt` descending döner. |
@@ -113,6 +123,8 @@ Bu plan Sprint 4B ve sonrası auth uygulaması için beklenen test kapsamını t
 | Logout production clear-cookie attributes | `__Host-refresh_token`, host-only, `Path=/`, Secure, HttpOnly, SameSite=Lax ve geçmiş expiry doğrulanır. |
 | Session management leakage | Session list/revoke/logout-all response ve audit metadata raw token, cookie, authorization header, raw IP, user-agent ve DB detayı içermez. |
 | Session management IDOR | User A, User B sessionını listeleyemez veya silemez; silme denemesi 404 ile existence gizler. |
+| Email verification leakage | Verify response ve audit metadata raw token, tokenHash, email, cookie, authorization header, raw IP ve DB detayı içermez. |
+| Email verification audit flood boundary | Invalid token denemeleri sınırsız audit log üretmez; Sprint 4F limiter/metric boundary'si korunur. |
 | Development cookie policy | Localhost prefix'siz ve `Secure=false` çalışabilir; production validation bunu production'da reddeder. |
 | XSS taşıyan displayName veya deviceName | Değerler encode edilir, script çalışmaz, loglara raw zararlı içerik yazılmaz. |
 | Yetki yükseltme | Request body ile `role=ADMIN` gönderilse bile rol değişmez. |
@@ -128,6 +140,7 @@ Bu plan Sprint 4B ve sonrası auth uygulaması için beklenen test kapsamını t
 | Cookie davranışı | HttpOnly cookie JS ile okunamaz; logout sonrası expire edilir. |
 | Çoklu cihaz | Her cihaz ayrı session olarak listelenir ve tek tek revoke edilir. |
 | Session management manuel akış | User A iki session, User B bir session ile list/revoke/IDOR/current revoke/logout-all akışı doğrulanır. |
+| Verify-email manuel akış | Geçerli, ikinci kullanım, uydurma, expired, revoked ve paralel verify davranışları aynı local fixture düzeniyle doğrulanır. |
 | Saat farkı | UTC expiry ve clock skew toleransı kullanıcıyı gereksiz kırmaz; server expiry esas alınır. |
 | Redis kapalı | Fallback limiter devreye girer; health degraded ve internal metric görünür olur. |
 | PostgreSQL kapalı | Auth endpointleri kontrollü hata döner; health degraded döner. |

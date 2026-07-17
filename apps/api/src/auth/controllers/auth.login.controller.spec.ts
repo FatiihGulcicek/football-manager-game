@@ -9,6 +9,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { applyTrustProxy } from '../../http/trust-proxy';
 import { AUTH_AUDIT_EVENTS } from '../constants/auth-audit-events';
 import { AccessTokenService } from '../services/access-token.service';
+import { EmailVerificationService } from '../services/email-verification.service';
 import { LoginRateLimitService } from '../services/login-rate-limit.service';
 import { LoginService } from '../services/login.service';
 import { LogoutService } from '../services/logout.service';
@@ -456,6 +457,12 @@ async function createAuthLoginApplication(
         provide: RefreshService,
         useValue: {
           refresh: vi.fn()
+        }
+      },
+      {
+        provide: EmailVerificationService,
+        useValue: {
+          verifyEmail: vi.fn()
         }
       },
       {

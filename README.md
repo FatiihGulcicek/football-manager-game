@@ -114,7 +114,17 @@ $loginResponse.Content
 $loginResponse.Headers["Set-Cookie"]
 ```
 
-Until the email verification endpoint exists, local manual login checks require setting `emailVerifiedAt` for the local test user through a controlled development DB update.
+Email verification consumes an opaque token from the request body. Until real email delivery exists, local manual checks should use a controlled development fixture and must not persist or commit the raw token:
+
+```powershell
+$verifyPayload = @{
+  token = "<verification-token-from-local-fixture>"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post -Uri "$baseUrl/auth/verify-email" -ContentType "application/json" -Body $verifyPayload
+```
+
+Successful verification returns `status = "verified"`. The same token cannot be used twice; expired, revoked, used, unknown, or disabled-user tokens return the same generic error envelope.
 
 Refresh rotates the HttpOnly refresh cookie and returns a new access token. The request body stays empty; do not put the refresh token in JSON, query params, or headers:
 

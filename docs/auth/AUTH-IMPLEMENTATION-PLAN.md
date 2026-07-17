@@ -124,21 +124,35 @@ Sprint 4C.5 tamamlananlar:
 - `AUTH_LOGOUT_ALL` audit metadata allowlist `sessionCount`, `reason`; `AUTH_SESSION_REVOKED` allowlist `targetSessionId`, `isCurrent`, `reason` ile sınırlıdır.
 - Audit yazma hatası revoke sonucunu tersine çevirmez; session/refresh revoke transaction sınırında tutulur.
 
-## Sprint 4D - E-posta doğrulama hazırlığı ve session sonrası auth akışları
+## Sprint 4D - E-posta doğrulama
 
 | Alan | Detay |
 | --- | --- |
-| Amaç | E-posta doğrulama ve şifre sıfırlama sprintlerine geçmeden önce authenticated session davranışının manuel ve review bulgularıyla sertleştirilmesi. |
-| Değişecek ana dosyalar | Auth docs, gerekirse küçük auth service/controller düzeltmeleri, regression testler. |
-| Test şartları | Session management regression, old access token rejection, cookie clear edge cases ve review bulguları. |
-| Kabul kriterleri | Register/login/refresh/logout/session endpointleri birbiriyle tutarlı kalır; yeni email/reset geliştirmeleri bu guard ve session modelinin üstüne kurulabilir. |
-| Riskler | Review sonrası küçük güvenlik düzeltmelerinin kapsam büyütmesi, manuel test fixture'larında gerçek token veya session id sızıntısı. |
+| Amaç | E-posta doğrulama tokenını güvenli şekilde consume etmek, user email durumunu güncellemek ve sonraki resend/password reset akışlarına zemin hazırlamak. |
+| Değişecek ana dosyalar | Auth controller, email verification service, DTO/error sınıfları, auth tests, docs. |
+| Test şartları | Valid/invalid/expired/revoked/used token, already verified user, concurrent verify, audit ve leakage testleri. |
+| Kabul kriterleri | Token yalnız body'den alınır, hash ile lookup yapılır, atomic consume uygulanır, generic invalid hata döner, raw token sızmaz. |
+| Riskler | E-posta sağlayıcısı henüz olmadığı için manuel test fixture yönetimi, gerçek rate limiter'ın Sprint 4F'e kalması. |
 
-## Sprint 4E - E-posta doğrulama ve şifre sıfırlama
+Sprint 4D.1 tamamlananlar:
+
+- `POST /auth/verify-email` endpointi eklendi; access token veya refresh cookie gerektirmez.
+- Request DTO yalnız `token` alanını kabul eder; token trim edilir, güvenli uzunluk ve kontrol karakteri kontrollerinden geçer.
+- Token yalnız body içinden kabul edilir; query/header/cookie/authorization içinden token okunmaz.
+- Raw token yalnız `TokenHashService` ile hash lookup için bellekte kullanılır; DB, response ve audit metadata içine yazılmaz.
+- Token lookup `tokenHash` ile yapılır; token mevcut, unused, unrevoked, unexpired ve user active olmalıdır.
+- Transaction içinde token `usedAt` alır, `User.emailVerifiedAt` güncellenir, aynı kullanıcıya ait diğer unused verification tokenlar revoke edilir ve `AUTH_EMAIL_VERIFIED` audit log yazılır.
+- Consume işlemi `usedAt IS NULL`, `revokedAt IS NULL` ve `expiresAt > now` koşullu atomic update ile yarışa dayanıklı hale getirildi.
+- Kullanıcı zaten verified olsa bile geçerli unused token consumed edilir ve aynı 200 verified response döner.
+- Aynı token ikinci kez, expired, revoked, used, unknown veya disabled-user durumlarında 400 `AUTH_EMAIL_VERIFICATION_INVALID` generic zarfı döner.
+- Verify-email access token, refresh token veya session oluşturmaz ve mevcut sessionları revoke etmez.
+- Verify-email için Sprint 4F'te Redis limiter bağlanabilecek rate-limit service boundary eklendi; bu sprintte hardcoded limiter yoktur.
+
+## Sprint 4E - Resend verification ve şifre sıfırlama
 
 | Alan | Detay |
 | --- | --- |
-| Amaç | Email verification, resend verification, forgot password ve reset password akışlarını kurmak. |
+| Amaç | Resend verification, forgot password ve reset password akışlarını kurmak. |
 | Değişecek ana dosyalar | Auth email/reset services, mail provider abstraction veya fake adapter, DTO'lar, tests. |
 | Test şartları | Verification token expiry/used/revoked, reset token expiry/used/revoked, enumeration koruması, reset sonrası session revoke. |
 | Kabul kriterleri | Response hesap varlığını açıklamaz; tokenlar hashlenmiş saklanır; yeni token önceki unused tokenları revoke eder; mail sağlayıcı gerçek secret gerektirmez. |
