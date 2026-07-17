@@ -209,3 +209,11 @@ Bu dosya ADR benzeri karar kayıtlarını tutar. Kararlar değişirse yeni karar
 - Bağlam: Güvenlik incelemesi ve abuse analizi, kullanıcı hesabı silinse bile sınırlı retention süresince olay kayıtlarına ihtiyaç duyar.
 - Karar: `LoginAttempt.userId`, `AuditLog.actorUserId` ve `AuditLog.targetUserId` ilişkileri kullanıcı silindiğinde `SetNull` davranışıyla korunacaktır.
 - Sonuçlar: DEC-012 operasyonel kullanıcı verileri için cascade yaklaşımını korur; güvenlik/audit kayıtları kimliksizleştirilerek retention süresince saklanabilir.
+
+## DEC-027: Club current manager iliskisi ManagerProfile uzerinden kurulur
+
+- Tarih: 2026-07-17
+- Durum: Kabul edildi
+- Baglam: Sprint 3 modelinde Club kaydi dogrudan User owner iliskisine ve cascade delete davranisina bagliydi. Club Foundation ile managerless AI/NPC club, hesap silme sonrasi club kaydinin korunmasi ve tek current-manager source of truth ihtiyaci ortaya cikti.
+- Karar: Club current manager baglantisi `ManagerProfile` uzerinden kurulacak. Mevcut fiziksel `"ownerId"` kolonu migration uyumlulugu icin korunacak, Prisma tarafinda `currentManagerProfileId @map("ownerId")` olarak kullanilacak ve FK `ON DELETE SET NULL` davranisina gececektir.
+- Sonuclar: Bir manager en fazla bir current club yonetir, bir club en fazla bir current manager tasir, manager silinirse club kaydi silinmez ve managerless hale gelir. Assignment history, club secme endpointi ve club creation wizard sonraki sprintlere kalir.

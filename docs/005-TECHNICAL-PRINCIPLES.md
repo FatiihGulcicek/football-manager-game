@@ -47,3 +47,11 @@
 - Maç motoru ayrı ve saf fonksiyonlara yakın tasarlanacak.
 - Admin işlemleri audit log kapsamına alınacak.
 - Lisanslı veya gerçek marka varlıkları için izin doğrulanmadan üretim kullanımı yapılmayacak.
+
+## Sprint 5A Club technical notes
+
+- Club domain `apps/api/src/clubs` altinda Auth module'den ayrilmis bir API module olarak tutulur.
+- Private club erisimi client supplied club id ile degil, authenticated user -> ManagerProfile -> Club zinciriyle cozulur.
+- Public Club endpointleri Prisma select ile private finans ve internal relation id alanlarini cekmez.
+- Club settings update ve `CLUB_SETTINGS_UPDATED` audit kaydi ayni transaction icinde yapilir; no-op update audit yazmaz.
+- Club para alanlari `DECIMAL(14,2)` saklanir ve response DTO'larinda string serialize edilir.

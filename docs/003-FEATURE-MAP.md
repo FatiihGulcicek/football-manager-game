@@ -57,3 +57,10 @@ Bu harita özellikleri hedef kapsamlarına göre ayırır. MVP kapsamındaki mad
 | Çok bölgeli sunucu | Ölçeklenebilirlik ve düşük gecikme sağlar | Çok yüksek | Operasyon, veri çoğaltma, gözlemleme | Phase 7+ |
 | Yerelleştirme | Daha geniş oyuncu kitlesine erişim sağlar | Orta | Metin yönetimi, içerik süreci | Phase 7 |
 | Mobil mağaza yayınları | PWA sonrası platform erişimini büyütür | Yüksek | Mobil paketleme, mağaza uyumluluğu | Phase 7+ |
+
+## Sprint 5A Club Foundation notu
+
+- Kulup MVP maddesinin backend temeli eklendi: public club list/detail, manager own-club okuma ve manager presentation update.
+- Kapsam disi kalanlar: lig fiksturu, oyuncular, transferler, detayli finans, club creation wizard, UI ve admin ekranlari.
+- Club public gorunurlugu `ACTIVE` status ile sinirlidir; assigned `INACTIVE` club yalniz kendi manager'i tarafindan gorulebilir.
+- Para alanlari Decimal saklanir ve API tarafinda string olarak doner.
