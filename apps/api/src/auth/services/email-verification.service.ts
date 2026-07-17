@@ -14,11 +14,13 @@ import { TokenHashService } from './token-hash.service';
 
 export type VerifyEmailRequestContext = {
   requestId?: string;
+  clientIp?: string;
 };
 
 type NormalizedVerifyEmailInput = {
   tokenHash: string;
   requestId: string;
+  clientIp: string;
 };
 
 type StoredEmailVerificationToken = {
@@ -56,7 +58,9 @@ export class EmailVerificationService {
     const input = this.normalizeInput(dto, requestContext);
 
     await this.rateLimitService.consumeVerifyEmailAttempt({
-      tokenHash: input.tokenHash
+      tokenHash: input.tokenHash,
+      clientIp: input.clientIp,
+      requestId: input.requestId
     });
 
     await this.prisma.$transaction(async (transaction) => {
@@ -171,11 +175,13 @@ export class EmailVerificationService {
     requestContext: VerifyEmailRequestContext
   ): NormalizedVerifyEmailInput {
     const requestId = normalizeContextText(requestContext.requestId ?? randomUUID(), 128);
+    const clientIp = normalizeContextText(requestContext.clientIp || 'unknown', 128);
     const rawToken = this.normalizeToken(dto, requestId);
 
     return {
       tokenHash: this.tokenHashService.hashToken(rawToken),
-      requestId
+      requestId,
+      clientIp
     };
   }
 

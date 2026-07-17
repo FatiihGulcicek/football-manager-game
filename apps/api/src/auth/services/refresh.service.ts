@@ -88,7 +88,8 @@ export class RefreshService {
   ): Promise<RefreshResult> {
     const input = this.normalizeInput(requestContext);
     await this.rateLimitService.consumeRefreshAttempt({
-      ipHash: input.ipHash
+      ipHash: input.ipHash,
+      requestId: input.requestId
     });
 
     if (!refreshToken) {
@@ -105,7 +106,8 @@ export class RefreshService {
 
     await this.rateLimitService.consumeRefreshAttempt({
       ipHash: input.ipHash,
-      sessionId: currentToken.sessionId
+      sessionId: currentToken.sessionId,
+      requestId: input.requestId
     });
 
     if (currentToken.usedAt) {

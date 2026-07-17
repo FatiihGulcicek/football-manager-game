@@ -1,10 +1,12 @@
 import { Module } from '@nestjs/common';
 import { AUTH_CONFIG, authConfig } from '../config/auth.config';
 import { DatabaseModule } from '../database/database.module';
+import { RedisModule } from '../redis/redis.module';
 import { AuthSessionsController } from './controllers/auth-sessions.controller';
 import { AuthController } from './controllers/auth.controller';
 import { AccessTokenGuard } from './guards/access-token.guard';
 import { AccessTokenService } from './services/access-token.service';
+import { AuthRateLimitService } from './services/auth-rate-limit.service';
 import {
   EMAIL_VERIFICATION_DELIVERY_SERVICE,
   NoopEmailVerificationDeliveryService
@@ -34,7 +36,7 @@ import { SessionService } from './services/session.service';
 import { TokenHashService } from './services/token-hash.service';
 
 @Module({
-  imports: [DatabaseModule],
+  imports: [DatabaseModule, RedisModule],
   controllers: [AuthController, AuthSessionsController],
   providers: [
     {
@@ -44,6 +46,7 @@ import { TokenHashService } from './services/token-hash.service';
     AccessTokenGuard,
     PasswordService,
     TokenHashService,
+    AuthRateLimitService,
     AccessTokenService,
     {
       provide: EMAIL_VERIFICATION_DELIVERY_SERVICE,
@@ -74,6 +77,7 @@ import { TokenHashService } from './services/token-hash.service';
   exports: [
     PasswordService,
     TokenHashService,
+    AuthRateLimitService,
     AccessTokenService,
     AccessTokenGuard,
     EMAIL_VERIFICATION_DELIVERY_SERVICE,

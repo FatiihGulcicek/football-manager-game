@@ -2,6 +2,43 @@ import { generateKeyPairSync, randomBytes } from 'crypto';
 
 export type AuthCookieSameSite = 'lax' | 'strict' | 'none';
 
+export type AuthRateLimitRule = {
+  limit: number;
+  windowSeconds: number;
+};
+
+export type AuthRateLimitsConfig = {
+  register: {
+    ip: AuthRateLimitRule;
+    email: AuthRateLimitRule;
+  };
+  login: {
+    ip: AuthRateLimitRule;
+    account: AuthRateLimitRule;
+    ipAccount: AuthRateLimitRule;
+  };
+  refresh: {
+    ip: AuthRateLimitRule;
+    session: AuthRateLimitRule;
+  };
+  forgotPassword: {
+    ip: AuthRateLimitRule;
+    account: AuthRateLimitRule;
+  };
+  resetPassword: {
+    ip: AuthRateLimitRule;
+    token: AuthRateLimitRule;
+  };
+  resendVerification: {
+    ip: AuthRateLimitRule;
+    account: AuthRateLimitRule;
+  };
+  verifyEmail: {
+    ip: AuthRateLimitRule;
+    token: AuthRateLimitRule;
+  };
+};
+
 export type AuthConfig = {
   accessTokenTtlSeconds: number;
   refreshTokenTtlSeconds: number;
@@ -21,6 +58,7 @@ export type AuthConfig = {
   cookiePath: string;
   trustProxyHops?: number;
   trustProxyCidrs: string[];
+  rateLimits?: AuthRateLimitsConfig;
   argon2MemoryCost: number;
   argon2TimeCost: number;
   argon2Parallelism: number;
@@ -28,10 +66,44 @@ export type AuthConfig = {
 
 type Environment = Record<string, string | undefined>;
 
+const MAX_RATE_LIMIT = 100_000;
+const MAX_RATE_LIMIT_WINDOW_SECONDS = 86_400;
 const DEVELOPMENT_KID = 'development';
 const LEGACY_DEV_PRIVATE_KEY_PLACEHOLDER = 'development-only-private-key-placeholder';
 const LEGACY_DEV_PUBLIC_KEY_PLACEHOLDER = 'development-only-public-key-placeholder';
 const LEGACY_DEV_TOKEN_PEPPER_PLACEHOLDER = 'development-only-token-pepper';
+
+export const DEFAULT_AUTH_RATE_LIMITS: AuthRateLimitsConfig = {
+  register: {
+    ip: { limit: 10, windowSeconds: 3_600 },
+    email: { limit: 5, windowSeconds: 3_600 }
+  },
+  login: {
+    ip: { limit: 30, windowSeconds: 900 },
+    account: { limit: 10, windowSeconds: 900 },
+    ipAccount: { limit: 5, windowSeconds: 900 }
+  },
+  refresh: {
+    ip: { limit: 120, windowSeconds: 900 },
+    session: { limit: 60, windowSeconds: 900 }
+  },
+  forgotPassword: {
+    ip: { limit: 10, windowSeconds: 3_600 },
+    account: { limit: 3, windowSeconds: 3_600 }
+  },
+  resetPassword: {
+    ip: { limit: 20, windowSeconds: 3_600 },
+    token: { limit: 5, windowSeconds: 900 }
+  },
+  resendVerification: {
+    ip: { limit: 10, windowSeconds: 3_600 },
+    account: { limit: 3, windowSeconds: 3_600 }
+  },
+  verifyEmail: {
+    ip: { limit: 30, windowSeconds: 3_600 },
+    token: { limit: 5, windowSeconds: 900 }
+  }
+};
 
 let developmentDefaults: {
   jwtPrivateKey: string;
@@ -67,6 +139,7 @@ export function loadAuthConfig(env: Environment = process.env): AuthConfig {
     cookiePath: readString(env, 'AUTH_COOKIE_PATH', '/'),
     trustProxyHops: readOptionalInteger(env, 'TRUST_PROXY_HOPS'),
     trustProxyCidrs: readCsv(env, 'TRUST_PROXY_CIDRS'),
+    rateLimits: readAuthRateLimits(env),
     argon2MemoryCost: readPositiveInteger(env, 'AUTH_ARGON2_MEMORY_COST', 65_536),
     argon2TimeCost: readPositiveInteger(env, 'AUTH_ARGON2_TIME_COST', 3),
     argon2Parallelism: readPositiveInteger(env, 'AUTH_ARGON2_PARALLELISM', 1)
@@ -89,6 +162,8 @@ export function validateAuthConfig(config: AuthConfig, isProduction: boolean): v
   if (config.trustProxyHops !== undefined && config.trustProxyCidrs.length > 0) {
     throw new Error('Use either TRUST_PROXY_HOPS or TRUST_PROXY_CIDRS, not both');
   }
+
+  validateAuthRateLimits(config.rateLimits ?? DEFAULT_AUTH_RATE_LIMITS);
 
   if (!isProduction) {
     return;
@@ -206,6 +281,157 @@ function readOptionalInteger(env: Environment, key: string): number | undefined 
   }
 
   return parsed;
+}
+
+function readBoundedPositiveInteger(
+  env: Environment,
+  key: string,
+  fallback: number,
+  max: number
+): number {
+  const value = readPositiveInteger(env, key, fallback);
+
+  if (value > max) {
+    throw new Error(`${key} must be ${max} or less`);
+  }
+
+  return value;
+}
+
+function readAuthRateLimits(env: Environment): AuthRateLimitsConfig {
+  return {
+    register: {
+      ip: readRateLimitRule(env, 'AUTH_RATE_LIMIT_REGISTER_IP', DEFAULT_AUTH_RATE_LIMITS.register.ip),
+      email: readRateLimitRule(
+        env,
+        'AUTH_RATE_LIMIT_REGISTER_EMAIL',
+        DEFAULT_AUTH_RATE_LIMITS.register.email
+      )
+    },
+    login: {
+      ip: readRateLimitRule(env, 'AUTH_RATE_LIMIT_LOGIN_IP', DEFAULT_AUTH_RATE_LIMITS.login.ip),
+      account: readRateLimitRule(
+        env,
+        'AUTH_RATE_LIMIT_LOGIN_ACCOUNT',
+        DEFAULT_AUTH_RATE_LIMITS.login.account
+      ),
+      ipAccount: readRateLimitRule(
+        env,
+        'AUTH_RATE_LIMIT_LOGIN_IP_ACCOUNT',
+        DEFAULT_AUTH_RATE_LIMITS.login.ipAccount
+      )
+    },
+    refresh: {
+      ip: readRateLimitRule(env, 'AUTH_RATE_LIMIT_REFRESH_IP', DEFAULT_AUTH_RATE_LIMITS.refresh.ip),
+      session: readRateLimitRule(
+        env,
+        'AUTH_RATE_LIMIT_REFRESH_SESSION',
+        DEFAULT_AUTH_RATE_LIMITS.refresh.session
+      )
+    },
+    forgotPassword: {
+      ip: readRateLimitRule(
+        env,
+        'AUTH_RATE_LIMIT_FORGOT_PASSWORD_IP',
+        DEFAULT_AUTH_RATE_LIMITS.forgotPassword.ip
+      ),
+      account: readRateLimitRule(
+        env,
+        'AUTH_RATE_LIMIT_FORGOT_PASSWORD_ACCOUNT',
+        DEFAULT_AUTH_RATE_LIMITS.forgotPassword.account
+      )
+    },
+    resetPassword: {
+      ip: readRateLimitRule(
+        env,
+        'AUTH_RATE_LIMIT_RESET_PASSWORD_IP',
+        DEFAULT_AUTH_RATE_LIMITS.resetPassword.ip
+      ),
+      token: readRateLimitRule(
+        env,
+        'AUTH_RATE_LIMIT_RESET_PASSWORD_TOKEN',
+        DEFAULT_AUTH_RATE_LIMITS.resetPassword.token
+      )
+    },
+    resendVerification: {
+      ip: readRateLimitRule(
+        env,
+        'AUTH_RATE_LIMIT_RESEND_VERIFICATION_IP',
+        DEFAULT_AUTH_RATE_LIMITS.resendVerification.ip
+      ),
+      account: readRateLimitRule(
+        env,
+        'AUTH_RATE_LIMIT_RESEND_VERIFICATION_ACCOUNT',
+        DEFAULT_AUTH_RATE_LIMITS.resendVerification.account
+      )
+    },
+    verifyEmail: {
+      ip: readRateLimitRule(
+        env,
+        'AUTH_RATE_LIMIT_VERIFY_EMAIL_IP',
+        DEFAULT_AUTH_RATE_LIMITS.verifyEmail.ip
+      ),
+      token: readRateLimitRule(
+        env,
+        'AUTH_RATE_LIMIT_VERIFY_EMAIL_TOKEN',
+        DEFAULT_AUTH_RATE_LIMITS.verifyEmail.token
+      )
+    }
+  };
+}
+
+function readRateLimitRule(
+  env: Environment,
+  keyPrefix: string,
+  fallback: AuthRateLimitRule
+): AuthRateLimitRule {
+  return {
+    limit: readBoundedPositiveInteger(env, `${keyPrefix}_LIMIT`, fallback.limit, MAX_RATE_LIMIT),
+    windowSeconds: readBoundedPositiveInteger(
+      env,
+      `${keyPrefix}_WINDOW_SECONDS`,
+      fallback.windowSeconds,
+      MAX_RATE_LIMIT_WINDOW_SECONDS
+    )
+  };
+}
+
+function validateAuthRateLimits(rateLimits: AuthRateLimitsConfig): void {
+  for (const [path, rule] of collectRateLimitRules(rateLimits)) {
+    if (!Number.isInteger(rule.limit) || rule.limit <= 0 || rule.limit > MAX_RATE_LIMIT) {
+      throw new Error(`${path}.limit must be an integer between 1 and ${MAX_RATE_LIMIT}`);
+    }
+
+    if (
+      !Number.isInteger(rule.windowSeconds) ||
+      rule.windowSeconds <= 0 ||
+      rule.windowSeconds > MAX_RATE_LIMIT_WINDOW_SECONDS
+    ) {
+      throw new Error(
+        `${path}.windowSeconds must be an integer between 1 and ${MAX_RATE_LIMIT_WINDOW_SECONDS}`
+      );
+    }
+  }
+}
+
+function collectRateLimitRules(rateLimits: AuthRateLimitsConfig): Array<[string, AuthRateLimitRule]> {
+  return [
+    ['rateLimits.register.ip', rateLimits.register.ip],
+    ['rateLimits.register.email', rateLimits.register.email],
+    ['rateLimits.login.ip', rateLimits.login.ip],
+    ['rateLimits.login.account', rateLimits.login.account],
+    ['rateLimits.login.ipAccount', rateLimits.login.ipAccount],
+    ['rateLimits.refresh.ip', rateLimits.refresh.ip],
+    ['rateLimits.refresh.session', rateLimits.refresh.session],
+    ['rateLimits.forgotPassword.ip', rateLimits.forgotPassword.ip],
+    ['rateLimits.forgotPassword.account', rateLimits.forgotPassword.account],
+    ['rateLimits.resetPassword.ip', rateLimits.resetPassword.ip],
+    ['rateLimits.resetPassword.token', rateLimits.resetPassword.token],
+    ['rateLimits.resendVerification.ip', rateLimits.resendVerification.ip],
+    ['rateLimits.resendVerification.account', rateLimits.resendVerification.account],
+    ['rateLimits.verifyEmail.ip', rateLimits.verifyEmail.ip],
+    ['rateLimits.verifyEmail.token', rateLimits.verifyEmail.token]
+  ];
 }
 
 function readInteger(env: Environment, key: string, fallback: number): number {

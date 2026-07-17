@@ -90,7 +90,9 @@ export class LoginService {
     const input = this.normalizeInput(dto, requestContext);
     await this.rateLimitService.consumeLoginAttempt({
       email: input.email,
-      context: input.context
+      context: input.context,
+      clientIp: input.clientIp,
+      requestId: input.requestId
     });
 
     const user = await this.findUser(input.email);

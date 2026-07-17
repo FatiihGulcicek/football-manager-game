@@ -1,6 +1,6 @@
 # Authentication API Contracts
 
-Bu belge authentication API sözleşmelerini tanımlar. Sprint 4E.2 itibarıyla `POST /auth/register`, `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `POST /auth/logout-all`, `GET /auth/sessions`, `DELETE /auth/sessions/:sessionId`, `POST /auth/verify-email`, `POST /auth/resend-verification`, `POST /auth/forgot-password` ve `POST /auth/reset-password` uygulanmıştır; diğer endpointler sonraki alt sprintler için sözleşme durumundadır.
+Bu belge authentication API sözleşmelerini tanımlar. Sprint 4F.1 itibarıyla `POST /auth/register`, `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `POST /auth/logout-all`, `GET /auth/sessions`, `DELETE /auth/sessions/:sessionId`, `POST /auth/verify-email`, `POST /auth/resend-verification`, `POST /auth/forgot-password`, `POST /auth/reset-password` ve public auth endpointleri için Redis tabanlı rate limit uygulanmıştır; diğer endpointler sonraki alt sprintler için sözleşme durumundadır.
 
 ## Ortak kurallar
 
@@ -16,6 +16,8 @@ Bu belge authentication API sözleşmelerini tanımlar. Sprint 4E.2 itibarıyla 
 - Her authenticated endpoint JWT doğrulamasından sonra `sid` ile session-active kontrolü yapar.
 - Admin ve normal kullanıcı aynı auth altyapısını kullanır; erişim role guard ile ayrılır.
 - Login `context` alanı yalnız giriş yüzeyini belirtir; yetkilendirme sinyali değildir.
+- Redis rate limit anahtarları `auth:rl:v1:<action>:<identifierHash>` formatındadır; raw email, normalized email, raw IP, token, cookie, parola veya full user-agent Redis key, response veya loglara yazılmaz.
+- Rate limit aşıldığında endpointler 429 `AUTH_RATE_LIMITED` standart auth zarfını ve `Retry-After` header'ını döner.
 
 ## JWT beklentileri
 
@@ -34,7 +36,7 @@ Bu belge authentication API sözleşmelerini tanımlar. Sprint 4E.2 itibarıyla 
 - `Access-Control-Allow-Credentials=true` yalnız allowlist originlerde kullanılır.
 - Wildcard origin ve credentials birlikte yasaktır.
 - Development originleri environment üzerinden ayrıca listelenir.
-- CORS runtime hardening ve Origin/Referer kontrolleri Sprint 4F kapsamındadır.
+- CORS runtime hardening ve Origin/Referer kontrolleri sonraki security hardening kapsamındadır.
 
 ## Client IP ve proxy sözleşmesi
 
@@ -57,19 +59,48 @@ Bu belge authentication API sözleşmelerini tanımlar. Sprint 4E.2 itibarıyla 
 
 Hata mesajları kullanıcı varlığı, e-posta doğrulama durumu veya parola yanlışlığı hakkında gereksiz ayrıntı açıklamaz.
 
+Rate limit response'u tüm public auth endpointlerinde aynı zarfı kullanır:
+
+```json
+{
+  "error": {
+    "code": "AUTH_RATE_LIMITED",
+    "message": "Çok fazla istek gönderildi. Lütfen daha sonra tekrar deneyin.",
+    "requestId": "req_..."
+  }
+}
+```
+
+- HTTP status: 429 Too Many Requests.
+- Header: `Retry-After: <seconds>`.
+- Response action adı, Redis key, sayaç, IP, email hash, token hash, session id, cookie veya raw request body içermez.
+- Redis unavailable veya beklenmeyen Redis sonucu olduğunda limiter fail-open davranır; safe internal log yazar ve Redis hata detayı response'a sızmaz.
+
+Varsayılan auth rate limitleri environment üzerinden değiştirilebilir:
+
+| Akış | Bucket | Varsayılan |
+| --- | --- | --- |
+| Register | IP, email | 10/saat, 5/saat |
+| Login | IP, account, IP/account | 30/15 dk, 10/15 dk, 5/15 dk |
+| Refresh | IP, session | 120/15 dk, 60/15 dk |
+| Forgot password | IP, account | 10/saat, 3/saat |
+| Reset password | IP, token | 20/saat, 5/15 dk |
+| Resend verification | IP, account | 10/saat, 3/saat |
+| Verify email | IP, token | 30/saat, 5/15 dk |
+
 ## Endpoint sözleşmeleri
 
 | Endpoint | Auth | Request DTO | Response DTO | Durum kodları | Güvenli hata kodları | Rate limit | Audit log | Idempotency |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `POST /auth/register` | Public | `{ email, password, displayName, locale?, timezone? }` | `{ status: "accepted", message }` | 202, 400, 429 | `AUTH_VALIDATION_FAILED`, `AUTH_RATE_LIMITED` | Register limiter boundary; Redis limit Sprint 4F | Yeni kullanıcı için `AUTH_REGISTERED` | Her zaman generic 202; e-posta zaten kayıtlıysa API açıklamaz ve kullanıcı verisi dönmez. |
-| `POST /auth/login` | Public | `{ email, password, context? }` | `{ accessToken, tokenType, expiresIn, user }` + refresh cookie | 200, 400, 401, 429 | `AUTH_INVALID_CREDENTIALS`, `AUTH_RATE_LIMITED` | Login limiter boundary; Redis limit Sprint 4F | `AUTH_LOGIN_SUCCEEDED` veya `AUTH_LOGIN_FAILED` | Aynı credential tekrar yeni session oluşturur; rate limit korur. |
-| `POST /auth/refresh` | Refresh cookie | Empty body | `{ accessToken, tokenType, expiresIn }` + rotated refresh cookie | 200, 400, 401, 409, 429 | `AUTH_REFRESH_INVALID_BODY`, `AUTH_REFRESH_INVALID`, `AUTH_REFRESH_CONFLICT`, `AUTH_REFRESH_REUSED`, `AUTH_RATE_LIMITED` | Refresh limiter boundary; Redis limit Sprint 4F | `AUTH_REFRESH_SUCCEEDED`, `AUTH_REFRESH_FAILED`, replay varsa `AUTH_REFRESH_REUSED` | Token tek kullanımlıdır; kısa parallel yarışta 409 conflict döner, gerçek replay session revoke eder. |
-| `POST /auth/logout` | Optional refresh cookie | Empty body | Empty | 204, 400 | `AUTH_LOGOUT_INVALID_BODY` | Hardcoded limiter yok; Sprint 4F boundary | Eşleşen aktif session için `AUTH_LOGOUT` | Idempotent; cookie yok, uydurma cookie veya zaten çıkılmış session için 204 döner. |
+| `POST /auth/register` | Public | `{ email, password, displayName, locale?, timezone? }` | `{ status: "accepted", message }` | 202, 400, 429 | `AUTH_VALIDATION_FAILED`, `AUTH_RATE_LIMITED` | Redis fixed-window: IP + normalized email hash | Yeni kullanıcı için `AUTH_REGISTERED` | Her zaman generic 202; e-posta zaten kayıtlıysa API açıklamaz ve kullanıcı verisi dönmez. |
+| `POST /auth/login` | Public | `{ email, password, context? }` | `{ accessToken, tokenType, expiresIn, user }` + refresh cookie | 200, 400, 401, 429 | `AUTH_INVALID_CREDENTIALS`, `AUTH_RATE_LIMITED` | Redis fixed-window: IP + account + IP/account | `AUTH_LOGIN_SUCCEEDED` veya `AUTH_LOGIN_FAILED` | Aynı credential tekrar yeni session oluşturur; rate limit korur. |
+| `POST /auth/refresh` | Refresh cookie | Empty body | `{ accessToken, tokenType, expiresIn }` + rotated refresh cookie | 200, 400, 401, 409, 429 | `AUTH_REFRESH_INVALID_BODY`, `AUTH_REFRESH_INVALID`, `AUTH_REFRESH_CONFLICT`, `AUTH_REFRESH_REUSED`, `AUTH_RATE_LIMITED` | Redis fixed-window: IP + session | `AUTH_REFRESH_SUCCEEDED`, `AUTH_REFRESH_FAILED`, replay varsa `AUTH_REFRESH_REUSED` | Token tek kullanımlıdır; kısa parallel yarışta 409 conflict döner, gerçek replay session revoke eder. |
+| `POST /auth/logout` | Optional refresh cookie | Empty body | Empty | 204, 400 | `AUTH_LOGOUT_INVALID_BODY` | Bu sprintte Redis limiter kapsamı dışında | Eşleşen aktif session için `AUTH_LOGOUT` | Idempotent; cookie yok, uydurma cookie veya zaten çıkılmış session için 204 döner. |
 | `POST /auth/logout-all` | Access token + active session | Empty body | Empty | 204, 400, 401 | `AUTH_LOGOUT_ALL_INVALID_BODY`, `AUTH_UNAUTHORIZED` | User + IP | `AUTH_LOGOUT_ALL` | Idempotent; active session yoksa 204. |
-| `POST /auth/verify-email` | Public | `{ token }` | `{ status: "verified", message }` | 200, 400, 429 | `AUTH_EMAIL_VERIFICATION_INVALID`, `AUTH_RATE_LIMITED` | Verify-email limiter boundary; Redis limit Sprint 4F | Başarılı consume için `AUTH_EMAIL_VERIFIED` | Geçerli unused token, kullanıcı zaten verified olsa bile consumed edilir ve 200 döner; aynı token ikinci kullanımda generic invalid döner. |
-| `POST /auth/resend-verification` | Public | `{ email }` | `{ status: "accepted", message }` | 202, 400, 429 | `AUTH_RATE_LIMITED`, `AUTH_VALIDATION_FAILED` | Resend limiter boundary; Redis limit Sprint 4F | Uygun kullanıcıda token create için `AUTH_EMAIL_VERIFICATION_RESENT` | Geçerli biçimli email girdilerinde hesap varlığı açıklanmaz; uygun kullanıcıda önceki unused tokenlar revoke edilir ve yeni hash token oluşturulur. |
-| `POST /auth/forgot-password` | Public | `{ email }` | `{ status: "accepted", message }` | 202, 400, 429 | `AUTH_RATE_LIMITED`, `AUTH_VALIDATION_FAILED` | Forgot-password limiter boundary; Redis limit Sprint 4F | Uygun kullanıcıda token create için `AUTH_PASSWORD_RESET_REQUESTED` | Geçerli biçimli email girdilerinde hesap varlığı açıklanmaz; uygun ve verified kullanıcıda önceki unused reset tokenlar revoke edilir ve yeni hash token oluşturulur. |
-| `POST /auth/reset-password` | Public | `{ token, newPassword }` | `{ status: "success", message }` | 200, 400, 429 | `INVALID_OR_EXPIRED_RESET_TOKEN`, `AUTH_PASSWORD_POLICY_FAILED`, `AUTH_VALIDATION_FAILED`, `AUTH_RATE_LIMITED` | Reset limiter boundary; Redis limit Sprint 4F | Başarılı consume için `AUTH_PASSWORD_RESET_COMPLETED` | Token yalnız body içinden kabul edilir; başarılı kullanım tek seferliktir, tekrar kullanım generic invalid kabul edilir ve tüm aktif sessionlar revoke edilir. |
+| `POST /auth/verify-email` | Public | `{ token }` | `{ status: "verified", message }` | 200, 400, 429 | `AUTH_EMAIL_VERIFICATION_INVALID`, `AUTH_RATE_LIMITED` | Redis fixed-window: IP + token hash | Başarılı consume için `AUTH_EMAIL_VERIFIED` | Geçerli unused token, kullanıcı zaten verified olsa bile consumed edilir ve 200 döner; aynı token ikinci kullanımda generic invalid döner. |
+| `POST /auth/resend-verification` | Public | `{ email }` | `{ status: "accepted", message }` | 202, 400, 429 | `AUTH_RATE_LIMITED`, `AUTH_VALIDATION_FAILED` | Redis fixed-window: IP + normalized email hash | Uygun kullanıcıda token create için `AUTH_EMAIL_VERIFICATION_RESENT` | Geçerli biçimli email girdilerinde hesap varlığı açıklanmaz; uygun kullanıcıda önceki unused tokenlar revoke edilir ve yeni hash token oluşturulur. |
+| `POST /auth/forgot-password` | Public | `{ email }` | `{ status: "accepted", message }` | 202, 400, 429 | `AUTH_RATE_LIMITED`, `AUTH_VALIDATION_FAILED` | Redis fixed-window: IP + normalized email hash | Uygun kullanıcıda token create için `AUTH_PASSWORD_RESET_REQUESTED` | Geçerli biçimli email girdilerinde hesap varlığı açıklanmaz; uygun ve verified kullanıcıda önceki unused reset tokenlar revoke edilir ve yeni hash token oluşturulur. |
+| `POST /auth/reset-password` | Public | `{ token, newPassword }` | `{ status: "success", message }` | 200, 400, 429 | `INVALID_OR_EXPIRED_RESET_TOKEN`, `AUTH_PASSWORD_POLICY_FAILED`, `AUTH_VALIDATION_FAILED`, `AUTH_RATE_LIMITED` | Redis fixed-window: IP + reset token hash | Başarılı consume için `AUTH_PASSWORD_RESET_COMPLETED` | Token yalnız body içinden kabul edilir; başarılı kullanım tek seferliktir, tekrar kullanım generic invalid kabul edilir ve tüm aktif sessionlar revoke edilir. |
 | `POST /auth/change-password` | Access token + active session | `{ currentPassword, newPassword }` | `{ status: "password_changed" }` | 200, 400, 401, 429 | `AUTH_INVALID_CREDENTIALS`, `AUTH_PASSWORD_POLICY_FAILED`, `AUTH_RATE_LIMITED` | User + IP | `AUTH_PASSWORD_CHANGED` | Aynı istek tekrar current password değiştiği için başarısız olabilir. |
 | `GET /auth/me` | Access token + active session | None | `{ user: PublicUser, session: CurrentSession }` | 200, 401 | `AUTH_UNAUTHORIZED`, `AUTH_SESSION_REVOKED` | Normal API limit | Opsiyonel `AUTH_ME_READ` metric | Read-only. |
 | `GET /auth/sessions` | Access token + active session | None | `{ sessions: SessionSummary[] }` | 200, 401 | `AUTH_UNAUTHORIZED` | User limit | Yok | Read-only. |
@@ -123,7 +154,7 @@ Yeni kullanıcı için transaction içinde `User`, `ManagerProfile`, `EmailVerif
 - `password` string olmalı, maksimum 128 karakterdir; null byte ve sakıncalı kontrol karakterleri reddedilir.
 - `context` opsiyoneldir; yalnız `WEB` veya `ADMIN` kabul edilir, varsayılan `WEB` olur.
 - `context=ADMIN` kullanıcıya admin rolü vermez ve JWT role claim'ini değiştirmez.
-- ADMIN context yalnız `LoginAttempt`, audit/monitoring metadata'sı ve Sprint 4F risk/rate-limit grupları için kullanılabilir.
+- ADMIN context yalnız `LoginAttempt`, audit/monitoring metadata'sı ve risk/rate-limit grupları için kullanılabilir.
 - `role`, `userId`, `sessionId`, `isActive` veya başka client controlled auth alanları kabul edilmez.
 
 Başarılı response:
@@ -374,7 +405,7 @@ Invalid response tüm dış nedenler için aynıdır: token bulunamadı, expired
 
 Verify-email yeni session oluşturmaz, access token üretmez, refresh token üretmez, mevcut sessionları revoke etmez ve login işlemi yapmaz. Kullanıcı doğrulama sonrası normal login endpointiyle giriş yapar.
 
-`AUTH_EMAIL_VERIFIED` audit metadata allowlist'i yalnız `context` ve `verificationMethod` alanlarını içerir. Raw token, token hash, e-posta, IP, cookie veya authorization header audit metadata içine yazılmaz. Geçersiz token denemeleri bu sprintte sınırsız audit log üretmez; Sprint 4F'te rate-limit/metric katmanına bağlanacaktır.
+`AUTH_EMAIL_VERIFIED` audit metadata allowlist'i yalnız `context` ve `verificationMethod` alanlarını içerir. Raw token, token hash, e-posta, IP, cookie veya authorization header audit metadata içine yazılmaz. Geçersiz token denemeleri sınırsız audit log üretmez; Redis rate-limit boundary IP ve token hash üzerinden çalışır.
 
 ## Uygulanan resend verification sözleşmesi
 
@@ -414,7 +445,7 @@ Uygun kullanıcı için transaction içinde sırasıyla aynı user'a ait tüm un
 
 Aynı email için concurrent resend istekleri user-scoped PostgreSQL advisory transaction lock ile serialize edilir. Bu sprintin sözleşmesi: her serialized resend yeni token oluşturabilir, bir önceki tokenı revoke edebilir, audit ve delivery stub çağrısı üretebilir; 3 paralel istek sonunda yalnız son token active unused kalır. Bu, rate limit gerçek Redis implementasyonuna bağlanana kadar gereksiz e-posta üretimi riski taşır ama birden fazla aktif token bırakmaz.
 
-Mail delivery transaction dışında `EmailVerificationDeliveryService` abstraction'ı ile çağrılır. Varsayılan implementasyon `NoopEmailVerificationDeliveryService` gerçek SMTP/provider çağrısı yapmaz ve email/raw token loglamaz. Delivery failure endpoint response'una yansımaz; response yine generic 202 olur. Bu tercih enumeration direncini korur, fakat token DB'de kalıp mail gönderilememesi riskini Sprint 4F/provider retry tasarımına bırakır.
+Mail delivery transaction dışında `EmailVerificationDeliveryService` abstraction'ı ile çağrılır. Varsayılan implementasyon `NoopEmailVerificationDeliveryService` gerçek SMTP/provider çağrısı yapmaz ve email/raw token loglamaz. Delivery failure endpoint response'una yansımaz; response yine generic 202 olur. Bu tercih enumeration direncini korur, fakat token DB'de kalıp mail gönderilememesi riski sonraki provider retry tasarımında ele alınmalıdır.
 
 `AUTH_EMAIL_VERIFICATION_RESENT` audit metadata allowlist'i yalnız `context` ve `verificationMethod` alanlarını içerir:
 
@@ -464,11 +495,11 @@ Uygun kullanıcı koşulları:
 - DB'deki normalized email request email ile eşleşir.
 - Mevcut şemada soft-delete alanı yoktur; ileride eklenirse uygunluk kontrolüne dahil edilmelidir.
 
-Her geçerli request rate-limit boundary'den geçer. Boundary inputu raw email içermez; normalized email `TokenHashService.hashToken("password-reset-email:<email>")` ile hashlenir ve `clientIp`/`requestId` ile birlikte no-op `PasswordResetRateLimitService` içine verilir. Redis destekli gerçek limit Sprint 4F kapsamındadır.
+Her geçerli request Redis rate-limit boundary'den geçer. Boundary inputu raw email içermez; normalized email `TokenHashService.hashToken("password-reset-email:<email>")` ile hashlenir ve `clientIp`/`requestId` ile birlikte `PasswordResetRateLimitService` içine verilir.
 
 Uygun kullanıcı için transaction içinde sırasıyla user-scoped PostgreSQL advisory transaction lock alınır, user tekrar okunur ve uygunluk tekrar doğrulanır, aynı user'a ait tüm unused/unrevoked `PasswordResetToken` kayıtları revoke edilir, yeni opaque token üretilir, yalnız `tokenHash` DB'ye yazılır ve `AUTH_PASSWORD_RESET_REQUESTED` audit kaydı oluşturulur. Expired ama unused/unrevoked reset tokenlar da revoke kapsamındadır; böylece aynı kullanıcı için tek active unused reset token kalır. Başka kullanıcının reset tokenları etkilenmez.
 
-Advisory lock key biçimi `auth-password-reset:<userId>` olur. Aynı email için 3 paralel forgot-password isteği 202 dönebilir; transactionlar serialize edilir, her uygun request audit ve delivery çağrısı üretebilir, ancak sonunda yalnız son token active unused kalır. Delivery transaction dışında olduğu için çok paralel isteklerde önceki e-postadaki token daha sonra teslim edilebilir; bu out-of-order mail riski Sprint 4F/provider retry ve rate-limit tasarımında izlenmelidir.
+Advisory lock key biçimi `auth-password-reset:<userId>` olur. Aynı email için 3 paralel forgot-password isteği 202 dönebilir; transactionlar serialize edilir, her uygun request audit ve delivery çağrısı üretebilir, ancak sonunda yalnız son token active unused kalır. Delivery transaction dışında olduğu için çok paralel isteklerde önceki e-postadaki token daha sonra teslim edilebilir; bu out-of-order mail riski Redis rate limit ve sonraki provider retry tasarımıyla azaltılır.
 
 Mail delivery transaction dışında `PasswordResetDeliveryService` abstraction'ı ile çağrılır. Varsayılan implementasyon `NoopPasswordResetDeliveryService` gerçek SMTP/provider çağrısı yapmaz ve email/raw token loglamaz. Delivery failure endpoint response'una yansımaz; response yine generic 202 olur. Token ve audit committed kalır.
 
@@ -526,7 +557,7 @@ Token-state ve user-state hataları dışarıda ayrıştırılmaz. Token bulunam
 }
 ```
 
-Raw token önce `TokenHashService.hashToken()` ile hashlenir. Rate-limit boundary her valid-format request için raw token yerine `tokenHash`, normalize client IP ve `requestId` ile çağrılır. Redis destekli gerçek limit Sprint 4F kapsamındadır.
+Raw token önce `TokenHashService.hashToken()` ile hashlenir. Rate-limit boundary her valid-format request için raw token yerine `tokenHash`, normalize client IP ve `requestId` ile çağrılır; Redis key içinde yalnız purpose-separated identifier hash bulunur.
 
 Servis önce yalnız `PasswordResetToken.tokenHash` üzerinden preflight lookup yapar. Token bulunursa parola hash'i transaction dışında üretilir; hashleme veya parola policy hatasında DB mutation, token consume, session revoke veya audit oluşmaz.
 

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { AuthConfig } from '../../config/auth.config';
 import { PrismaService } from '../../database/prisma.service';
 import { AUTH_AUDIT_EVENTS } from '../constants/auth-audit-events';
+import { AuthRateLimitExceededException } from '../errors/auth-rate-limit-exceeded.exception';
 import { AccessTokenService } from './access-token.service';
 import { RefreshRateLimitService } from './refresh-rate-limit.service';
 import { RefreshService } from './refresh.service';
@@ -56,6 +57,42 @@ describe('RefreshService', () => {
         }
       })
     });
+  });
+
+  it('should consume the IP rate limit before token lookup or refresh failure audit', async () => {
+    const { prisma, rateLimitService, service } = createService();
+    rateLimitService.consumeRefreshAttempt.mockRejectedValue(
+      new AuthRateLimitExceededException('req-refresh', 60)
+    );
+
+    await expect(service.refresh('old-refresh-token', requestContext, now)).rejects.toBeInstanceOf(
+      AuthRateLimitExceededException
+    );
+    expect(rateLimitService.consumeRefreshAttempt).toHaveBeenCalledWith({
+      ipHash: 'hash:ip:127.0.0.1',
+      requestId: 'req-refresh'
+    });
+    expect(prisma.refreshToken.findUnique).not.toHaveBeenCalled();
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it('should consume the session rate limit before token rotation mutation', async () => {
+    const { prisma, rateLimitService, service, transaction } = createService();
+    prisma.refreshToken.findUnique.mockResolvedValue(createStoredRefreshToken());
+    rateLimitService.consumeRefreshAttempt
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new AuthRateLimitExceededException('req-refresh', 60));
+
+    await expect(service.refresh('old-refresh-token', requestContext, now)).rejects.toBeInstanceOf(
+      AuthRateLimitExceededException
+    );
+    expect(rateLimitService.consumeRefreshAttempt).toHaveBeenNthCalledWith(2, {
+      ipHash: 'hash:ip:127.0.0.1',
+      sessionId: 'session-1',
+      requestId: 'req-refresh'
+    });
+    expect(transaction.refreshToken.updateMany).not.toHaveBeenCalled();
+    expect(transaction.refreshToken.create).not.toHaveBeenCalled();
   });
 
   it('should rotate a valid refresh token and issue a new access token', async () => {
@@ -274,6 +311,7 @@ function createService() {
   return {
     accessTokenService,
     prisma,
+    rateLimitService,
     refreshTokenService,
     service,
     sessionService,

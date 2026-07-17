@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { AuthConfig } from '../../config/auth.config';
 import { PrismaService } from '../../database/prisma.service';
 import { AUTH_AUDIT_EVENTS } from '../constants/auth-audit-events';
+import { AuthRateLimitExceededException } from '../errors/auth-rate-limit-exceeded.exception';
 import { AccessTokenService } from './access-token.service';
 import { LoginRateLimitService } from './login-rate-limit.service';
 import { LoginRequestContext, LoginService } from './login.service';
@@ -58,6 +59,26 @@ describe('LoginService', () => {
       },
       select: expect.any(Object)
     });
+  });
+
+  it('should consume rate limits before database lookup or credential verification', async () => {
+    const { passwordService, prisma, rateLimitService, service } = createService();
+    rateLimitService.consumeLoginAttempt.mockRejectedValue(
+      new AuthRateLimitExceededException('req-test', 60)
+    );
+
+    await expect(service.login(createLoginDto(), requestContext)).rejects.toBeInstanceOf(
+      AuthRateLimitExceededException
+    );
+    expect(rateLimitService.consumeLoginAttempt).toHaveBeenCalledWith({
+      email: 'user@example.invalid',
+      context: LoginContext.WEB,
+      clientIp: '127.0.0.1',
+      requestId: 'req-test'
+    });
+    expect(prisma.user.findUnique).not.toHaveBeenCalled();
+    expect(passwordService.verifyPassword).not.toHaveBeenCalled();
+    expect(passwordService.verifyAgainstDummy).not.toHaveBeenCalled();
   });
 
   it('should complete a successful login', async () => {

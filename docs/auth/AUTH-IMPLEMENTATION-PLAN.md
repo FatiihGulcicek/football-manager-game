@@ -54,7 +54,7 @@ Sprint 4C.1 tamamlananlar:
 - E-posta doğrulama tokenı opaque üretilir, yalnız hash değeri saklanır; önceki unused verification tokenlar revoke edilir.
 - Duplicate e-posta ve unique constraint yarışı hesap varlığını açıklamayan aynı 202 response ile sonuçlanır.
 - Register akışı `LoginAttempt`, `UserSession`, `RefreshToken` veya `Club` oluşturmaz.
-- Rate limit için `RegisterRateLimitService` sınırı hazırlandı; Redis destekli gerçek limit Sprint 4F hardening kapsamındadır.
+- `RegisterRateLimitService` Redis fixed-window limiter'a bağlandı; IP ve normalized email bucketları kullanılır.
 - Unit ve HTTP integration testleri register davranışını gerçek e-posta gönderimi olmadan doğrular.
 
 Sprint 4C.2 tamamlananlar:
@@ -68,7 +68,7 @@ Sprint 4C.2 tamamlananlar:
 - Access token `AccessTokenService` ile DB'deki role ve yeni session id üzerinden üretilir.
 - `LoginAttempt` raw email/IP/user-agent/parola/token saklamaz; email, IP ve user-agent hashlenir.
 - Audit metadata allowlist `context`, `deviceType`, `browser`, `operatingSystem` ile sınırlıdır.
-- Rate limit için `LoginRateLimitService` sınırı hazırlandı; Redis destekli gerçek limit Sprint 4F hardening kapsamındadır.
+- `LoginRateLimitService` Redis fixed-window limiter'a bağlandı; IP, account ve IP/account bucketları credential lookup öncesinde çalışır.
 - Unit, HTTP integration ve production cookie config testleri eklendi.
 
 Sprint 4C.2.2 güvenlik düzeltmeleri:
@@ -95,7 +95,7 @@ Sprint 4C.3 tamamlananlar:
 - Grace window dışındaki replay `AUTH_REFRESH_REUSED` 401 döner, session ve token family revoke eder.
 - Cookie yok, invalid, expired, revoked, expired session ve disabled user durumları güvenli `AUTH_REFRESH_INVALID` 401 response döner.
 - Refresh akışı `LoginAttempt` yazmaz; audit metadata allowlist `context`, `reason`, `sessionId` ile sınırlıdır.
-- Refresh rate limit için `RefreshRateLimitService` boundary eklendi; Redis destekli gerçek limit Sprint 4F kapsamındadır.
+- `RefreshRateLimitService` Redis fixed-window limiter'a bağlandı; IP bucket token lookup öncesinde, session bucket rotation mutation öncesinde çalışır.
 - Unit, HTTP integration, race, rollback, replay ve production cookie attribute testleri eklendi.
 
 Sprint 4C.4 tamamlananlar:
@@ -132,7 +132,7 @@ Sprint 4C.5 tamamlananlar:
 | Değişecek ana dosyalar | Auth controller, email verification service, DTO/error sınıfları, auth tests, docs. |
 | Test şartları | Valid/invalid/expired/revoked/used token, already verified user, concurrent verify, audit ve leakage testleri. |
 | Kabul kriterleri | Token yalnız body'den alınır, hash ile lookup yapılır, atomic consume uygulanır, generic invalid hata döner, raw token sızmaz. |
-| Riskler | E-posta sağlayıcısı henüz olmadığı için manuel test fixture yönetimi, gerçek rate limiter'ın Sprint 4F'e kalması. |
+| Riskler | E-posta sağlayıcısı henüz olmadığı için manuel test fixture yönetimi, delivery retry/metric tasarımının sonraki sprintlere kalması. |
 
 Sprint 4D.1 tamamlananlar:
 
@@ -146,7 +146,7 @@ Sprint 4D.1 tamamlananlar:
 - Kullanıcı zaten verified olsa bile geçerli unused token consumed edilir ve aynı 200 verified response döner.
 - Aynı token ikinci kez, expired, revoked, used, unknown veya disabled-user durumlarında 400 `AUTH_EMAIL_VERIFICATION_INVALID` generic zarfı döner.
 - Verify-email access token, refresh token veya session oluşturmaz ve mevcut sessionları revoke etmez.
-- Verify-email için Sprint 4F'te Redis limiter bağlanabilecek rate-limit service boundary eklendi; bu sprintte hardcoded limiter yoktur.
+- Verify-email rate-limit service Redis fixed-window limiter'a bağlandı; IP ve token-hash bucketları kullanılır.
 
 Sprint 4D.2 tamamlananlar:
 
@@ -158,7 +158,7 @@ Sprint 4D.2 tamamlananlar:
 - `EmailVerificationDeliveryService` abstraction ve no-op default implementation eklendi; gerçek SMTP/provider entegrasyonu kapsam dışı kaldı.
 - Delivery transaction dışındadır; delivery failure response'a sızmaz ve endpoint generic 202 döner.
 - Resend access token, refresh token, session veya Set-Cookie üretmez; verified/disabled kullanıcıda side effect oluşturmaz.
-- Resend için Sprint 4F'te Redis limiter bağlanabilecek emailHash/IP/endpoint rate-limit boundary eklendi; bu sprintte hardcoded limiter yoktur.
+- Resend için emailHash/IP rate-limit boundary Redis fixed-window limiter'a bağlandı.
 
 ## Sprint 4E - Şifre sıfırlama ve e-posta delivery genişletmesi
 
@@ -176,7 +176,7 @@ Sprint 4E.1 tamamlananlar:
 - DTO email'i register/login ile ortak helper üzerinden trim/lowercase normalize eder; null byte ve kontrol karakterleri reddedilir.
 - Geçerli biçimli email girdilerinde unknown, eligible, disabled ve unverified kullanıcı aynı 202 generic accepted response'u alır.
 - Uygun kullanıcı koşulu active, verified (`emailVerifiedAt != null`) ve normalized DB email eşleşmesi olarak uygulanır.
-- Her geçerli request için `PasswordResetRateLimitService` boundary çağrılır; raw email yerine hashed email kullanılır. Gerçek Redis limiter Sprint 4F kapsamındadır.
+- Her geçerli request için `PasswordResetRateLimitService` Redis limiter boundary'si çağrılır; raw email yerine hashed email kullanılır.
 - Uygun kullanıcıda transaction içinde advisory lock alınır, kullanıcı tekrar okunur, eski unused/unrevoked reset tokenlar revoke edilir, yeni opaque token üretilir, yalnız hash saklanır ve `AUTH_PASSWORD_RESET_REQUESTED` audit log yazılır.
 - Lock key `auth-password-reset:<userId>` biçimindedir; aynı user için concurrent forgot-password işlemleri serialize edilir ve 3 paralel istek sonunda yalnız son token active unused kalır.
 - `PasswordResetDeliveryService` abstraction ve no-op default implementation eklendi; gerçek SMTP/provider entegrasyonu kapsam dışı kaldı.
@@ -191,7 +191,7 @@ Sprint 4E.2 tamamlananlar:
 - Reset token trim/normalize/lowercase yapılmadan opaque ve case-sensitive kabul edilir; query/header/cookie/authorization içinden token okunmaz.
 - Token hash lookup yalnız `PasswordResetToken` tablosunda yapılır; email verification tokenları reset token olarak kabul edilmez.
 - Token-state ve user-state hataları dışarıda ayrıştırılmaz; unknown, expired, revoked, used, user missing, disabled, unverified ve concurrent consume yarışı aynı `INVALID_OR_EXPIRED_RESET_TOKEN` zarfını döner.
-- Her valid-format request reset-password rate-limit boundary'sinden raw token yerine `tokenHash`, client IP ve requestId ile geçer; gerçek Redis limiter Sprint 4F kapsamındadır.
+- Her valid-format request reset-password Redis limiter boundary'sinden raw token yerine `tokenHash`, client IP ve requestId ile geçer.
 - Yeni parola register ile aynı `PasswordService` politikasından geçer; hash transaction dışında üretilir, hash/policy hatasında token consume, session revoke veya audit oluşmaz.
 - Transaction içinde token hash scoped advisory lock alınır; lock key `auth-password-reset-consume:<tokenHash>` biçimindedir ve raw token içermez.
 - Current reset token koşullu update ile `usedAt` alır, `revokedAt` null kalır; update count `1` değilse transaction rollback olur ve generic invalid döner.
@@ -202,13 +202,25 @@ Sprint 4E.2 tamamlananlar:
 
 ## Sprint 4F - Rate limit, audit log ve security hardening
 
+Durum: Sprint 4F.1 Redis tabanlı auth rate limiting tamamlandı. Audit log genişletmeleri, progressive delay, CSRF/CORS ve security header hardening sonraki alt sprintlerde devam edecektir.
+
 | Alan | Detay |
 | --- | --- |
-| Amaç | Redis rate limit, bounded in-memory fallback, login attempts, audit log, progressive delay, CSRF/CORS ve security header sertleştirmelerini tamamlamak. |
-| Değişecek ana dosyalar | Rate limit module, audit service, guards/interceptors, security headers/CORS config, tests. |
-| Test şartları | Brute-force, Redis down fallback, rate limited response, audit metadata sanitization, CSRF Origin check, CORS allowlist testleri. |
-| Kabul kriterleri | Auth endpointleri katmanlı limit altındadır; Redis down olduğunda tam fail-open/fail-closed yapılmaz; audit log hassas veri içermez; requestId response ve loglarda izlenir. |
-| Riskler | Çok instance ortamında in-memory fallback'in sınırlı koruma sağlaması, proxy config hatasıyla IP bazlı limitlerin atlatılması. |
+| Amaç | Redis rate limit, audit log, progressive delay, CSRF/CORS ve security header sertleştirmelerini tamamlamak. |
+| Değişecek ana dosyalar | Rate limit services, audit service, guards/interceptors, security headers/CORS config, tests. |
+| Test şartları | Brute-force, Redis fail-open, rate limited response, audit metadata sanitization, CSRF Origin check, CORS allowlist testleri. |
+| Kabul kriterleri | Auth endpointleri katmanlı limit altındadır; Redis down olduğunda auth limiter güvenli fail-open yapar; audit log hassas veri içermez; requestId response ve loglarda izlenir. |
+| Riskler | Redis availability alarmı eksikse çok instance ortamında fail-open korumayı geçici olarak kaldırır, proxy config hatasıyla IP bazlı limitler atlatılabilir. |
+
+Sprint 4F.1 tamamlananlar:
+
+- Ortak `AuthRateLimitService` eklendi; Redis `EVAL` ile fixed-window counter ve TTL ataması atomik yapılır.
+- Redis key formatı `auth:rl:v1:<action>:<identifierHash>` olarak sabitlendi.
+- Register, login, refresh, forgot-password, reset-password, resend-verification ve verify-email boundary servisleri gerçek Redis limiter'a bağlandı.
+- Limitler `AUTH_RATE_LIMIT_*` environment değerleriyle değiştirilebilir ve config validation pozitif integer + üst sınır kontrolü uygular.
+- 429 `AUTH_RATE_LIMITED` standart auth zarfı ve `Retry-After` header'ı controller filter ile eklendi.
+- Redis outage veya malformed Redis result durumunda fail-open davranışı ve hassas veri içermeyen safe log eklendi.
+- Unit/controller testleri limiter algoritması, TTL davranışı, concurrency boundary, fail-open ve HTTP 429 zarfını kapsar.
 
 ## Sprint 4G - Web login/register UI ve manuel doğrulama
 

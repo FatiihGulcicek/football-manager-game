@@ -17,6 +17,11 @@ Bu plan Sprint 4B ve sonrası auth uygulaması için beklenen test kapsamını t
 | Maksimum parola uzunluğu | Argon2 çağrısından önce reddedilir. |
 | Token hashing | Aynı token aynı HMAC/pepper hash değerini üretir; raw token loglanmaz. |
 | Token entropy | Refresh token en az 32 byte CSPRNG random içerir ve base64url taşınır. |
+| Redis auth rate limiter boundary | İlk istek allowed, limit sınırı allowed, limit üstü denied ve pozitif `Retry-After` üretir. |
+| Redis auth rate limiter TTL | TTL ilk istekle atomik atanır, sonraki isteklerde pencere uzatılmaz ve expiry sonrası sayaç resetlenir. |
+| Redis auth rate limiter key secrecy | Key `auth:rl:v1:<action>:<identifierHash>` formatındadır; raw email/IP/token/cookie içermez. |
+| Redis auth rate limiter fail-open | Redis hata veya malformed sonuç döndürürse safe log yazılır ve endpoint akışı devam eder. |
+| Redis auth rate limiter concurrency | 20 paralel istek tam limitte allowed kalır; 21. istek denied olur. |
 | JWT payload | Payload `sub`, `role`, `sid`, `iat`, `exp`, `iss`, `aud` içerir; hassas veri içermez. |
 | JWT header | Header `alg=ES256` ve `kid` içerir. |
 | Session oluşturma | Her login için yeni `UserSession` ve `tokenFamilyId` üretilir. |
@@ -151,7 +156,8 @@ Bu plan Sprint 4B ve sonrası auth uygulaması için beklenen test kapsamını t
 | NoSQL benzeri payload | Object/array gibi beklenmeyen payload validation ile reddedilir. |
 | Oversized payload | Büyük body ve uzun inputlar güvenli 400/413 alır. |
 | Brute-force | IP/emailHash/user limitleri ve progressive delay devreye girer. |
-| Redis down fallback limiter | Redis unavailable olduğunda bounded in-memory fallback çalışır, limitler daha muhafazakar olur ve health degraded döner. |
+| Redis down fail-open limiter | Redis unavailable olduğunda endpoint akışı devam eder, safe log yazılır ve Redis hata detayı response'a sızmaz. |
+| Rate limited HTTP envelope | Public auth endpointleri 429 `AUTH_RATE_LIMITED`, `requestId` ve `Retry-After` döner; Set-Cookie, raw token, cookie, sayaç veya DB detayı içermez. |
 | Enumeration | Register, login, forgot password ve resend verification hesap varlığını açıklamaz. |
 | Token tampering | JWT signature bozulduğunda 401 döner. |
 | JWT iss/aud/kid doğrulama | Yanlış issuer, audience veya bilinmeyen kid reddedilir. |
@@ -171,15 +177,15 @@ Bu plan Sprint 4B ve sonrası auth uygulaması için beklenen test kapsamını t
 | Session management leakage | Session list/revoke/logout-all response ve audit metadata raw token, cookie, authorization header, raw IP, user-agent ve DB detayı içermez. |
 | Session management IDOR | User A, User B sessionını listeleyemez veya silemez; silme denemesi 404 ile existence gizler. |
 | Email verification leakage | Verify response ve audit metadata raw token, tokenHash, email, cookie, authorization header, raw IP ve DB detayı içermez. |
-| Email verification audit flood boundary | Invalid token denemeleri sınırsız audit log üretmez; Sprint 4F limiter/metric boundary'si korunur. |
+| Email verification audit flood boundary | Invalid token denemeleri sınırsız audit log üretmez; Redis limiter/metric boundary'si korunur. |
 | Resend verification leakage | Response, audit metadata ve validation errors raw token, tokenHash, email, cookie, authorization header, raw IP veya DB detayı içermez. |
 | Resend verification SQL/advisory lock injection | Advisory lock query parameterized bind kullanır; userId raw SQL stringine interpolate edilmez. |
-| Resend verification timing enumeration | Geçerli email girdilerinde response aynı 202 olur; yapay sleep eklenmez, timing riski Sprint 4F limiter/metrics ile izlenir. |
+| Resend verification timing enumeration | Geçerli email girdilerinde response aynı 202 olur; yapay sleep eklenmez, timing riski Redis limiter/metrics ile izlenir. |
 | Forgot password leakage | Response, audit metadata, validation errors ve rate-limit inputları raw reset token, tokenHash, email, cookie, authorization header, raw IP veya DB detayı içermez. |
 | Forgot password parser leakage | Array, primitive body ve malformed JSON güvenli 400 döner; raw request body response'a yansımaz. |
 | Forgot password SQL/advisory lock injection | Advisory lock query parameterized bind kullanır; userId raw SQL stringine interpolate edilmez. |
 | Forgot password transaction enumeration | Eligible user transaction failure durumunda unknown user'dan farklı status üretilmez; delivery çağrısı yapılmaz. |
-| Forgot password out-of-order delivery risk | Concurrent delivery çağrıları sonunda tek active token kalır; önceki e-postanın geç teslim riski dokümante edilir ve Sprint 4F limiter/provider kuyruğuna bırakılır. |
+| Forgot password out-of-order delivery risk | Concurrent delivery çağrıları sonunda tek active token kalır; önceki e-postanın geç teslim riski dokümante edilir ve Redis limiter/provider kuyruğuyla azaltılır. |
 | Reset password leakage | Response, audit metadata, validation errors ve rate-limit inputları raw reset token, tokenHash, password, cookie, authorization header, raw IP, session id, refresh token id veya DB detayı içermez. |
 | Reset password replay resistance | Kullanılmış reset token tekrar gönderildiğinde session veya password ikinci kez değişmez, generic invalid döner ve ikinci audit oluşmaz. |
 | Reset password SQL/advisory lock injection | Advisory lock query parameterized bind kullanır; lock subject tokenHash'tir ve raw token SQL stringine interpolate edilmez. |
@@ -204,7 +210,7 @@ Bu plan Sprint 4B ve sonrası auth uygulaması için beklenen test kapsamını t
 | Forgot password manuel akış | Verified kullanıcı için 202, eski reset token revoke, yeni hash token created; unknown/disabled/unverified 202 ve 3 concurrent request sonunda 1 active reset token doğrulanır. |
 | Reset password manuel akış | Fixture reset token ile 200 response, password hash değişimi, token `usedAt`, peer token revoke, session/refresh revoke, replay/expired/revoked/unknown generic 400 ve 2 concurrent requestte 1 success/1 invalid doğrulanır. |
 | Saat farkı | UTC expiry ve clock skew toleransı kullanıcıyı gereksiz kırmaz; server expiry esas alınır. |
-| Redis kapalı | Fallback limiter devreye girer; health degraded ve internal metric görünür olur. |
+| Redis kapalı | Auth limiter fail-open davranır; endpointler Redis detayını sızdırmaz ve safe internal log üretir. |
 | PostgreSQL kapalı | Auth endpointleri kontrollü hata döner; health degraded döner. |
 | Cloudflare/Nginx/load balancer topolojisi | Production deployment IP normalization dokümanı ile runtime config eşleşir. |
 
@@ -214,4 +220,4 @@ Bu plan Sprint 4B ve sonrası auth uygulaması için beklenen test kapsamını t
 - Security testleri gerçek secret kullanmaz.
 - Test fixture parolaları açıkça test değeri olarak kalır; production-like secret üretilmez.
 - Wall-clock timing testleri ana CI'ı kıracak şekilde yazılmaz; gerekiyorsa ayrı manual/security benchmark notu olarak çalıştırılır.
-- Gerçek Redis rate limit, CORS Origin/Referer hardening ve audit retention testleri Sprint 4F kapsamındadır.
+- Redis auth rate limit testleri Sprint 4F.1 kapsamında eklenmiştir; CORS Origin/Referer hardening ve audit retention testleri sonraki security hardening kapsamındadır.

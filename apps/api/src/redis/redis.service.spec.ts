@@ -7,6 +7,7 @@ describe('RedisService', () => {
       status: 'ready',
       connect: vi.fn(async () => undefined),
       ping: vi.fn(async () => 'PONG'),
+      eval: vi.fn(async () => [1, 60]),
       quit: vi.fn(async () => undefined),
       ...overrides
     };
@@ -39,6 +40,15 @@ describe('RedisService', () => {
     const service = new RedisService(client);
 
     await expect(service.ping()).rejects.toThrow('redis unavailable');
+  });
+
+  it('should evaluate Redis scripts after lazy connection', async () => {
+    const client = createClient({ status: 'wait' });
+    const service = new RedisService(client);
+
+    await expect(service.eval('return 1', 1, 'key', 60)).resolves.toEqual([1, 60]);
+    expect(client.connect).toHaveBeenCalledOnce();
+    expect(client.eval).toHaveBeenCalledWith('return 1', 1, 'key', 60);
   });
 
   it('should quit the Redis connection on shutdown', async () => {

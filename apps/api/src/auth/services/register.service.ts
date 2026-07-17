@@ -1,5 +1,6 @@
 import { BadRequestException, Inject, Injectable, Optional } from '@nestjs/common';
 import { Prisma, UserRole } from '@football-manager/database';
+import { randomUUID } from 'crypto';
 import { AUTH_CONFIG, authConfig, AuthConfig } from '../../config/auth.config';
 import { PrismaService } from '../../database/prisma.service';
 import { AUTH_AUDIT_EVENTS } from '../constants/auth-audit-events';
@@ -20,6 +21,13 @@ type NormalizedRegisterInput = {
   locale: string;
   timezone: string;
   context: 'WEB';
+  requestId: string;
+  clientIp: string;
+};
+
+export type RegisterRequestContext = {
+  requestId?: string;
+  clientIp?: string;
 };
 
 const REGISTER_DTO_FIELDS = new Set(['email', 'password', 'displayName', 'locale', 'timezone']);
@@ -39,9 +47,16 @@ export class RegisterService {
     private readonly config: AuthConfig = authConfig
   ) {}
 
-  async register(dto: RegisterDto): Promise<RegisterResponseDto> {
-    const input = this.normalizeInput(dto);
-    await this.rateLimitService.consumeRegisterAttempt({ email: input.email });
+  async register(
+    dto: RegisterDto,
+    requestContext: RegisterRequestContext = {}
+  ): Promise<RegisterResponseDto> {
+    const input = this.normalizeInput(dto, requestContext);
+    await this.rateLimitService.consumeRegisterAttempt({
+      email: input.email,
+      clientIp: input.clientIp,
+      requestId: input.requestId
+    });
 
     const passwordHash = await this.hashPassword(input.password);
     const verificationToken = this.tokenHashService.generateOpaqueToken();
@@ -152,7 +167,10 @@ export class RegisterService {
     });
   }
 
-  private normalizeInput(dto: RegisterDto): NormalizedRegisterInput {
+  private normalizeInput(
+    dto: RegisterDto,
+    requestContext: RegisterRequestContext
+  ): NormalizedRegisterInput {
     this.assertAllowedFields(dto);
 
     return {
@@ -161,7 +179,9 @@ export class RegisterService {
       displayName: this.normalizeDisplayName(dto.displayName),
       locale: this.normalizeOptionalText(dto.locale, 'tr-TR', 20),
       timezone: this.normalizeOptionalText(dto.timezone, 'Europe/Istanbul', 64),
-      context: 'WEB'
+      context: 'WEB',
+      requestId: this.normalizeContextText(requestContext.requestId ?? randomUUID(), 128),
+      clientIp: this.normalizeContextText(requestContext.clientIp || 'unknown', 128)
     };
   }
 
@@ -205,6 +225,16 @@ export class RegisterService {
     }
 
     return value;
+  }
+
+  private normalizeContextText(value: string, maxLength: number): string {
+    const normalizedValue = value.trim();
+
+    if (normalizedValue.includes('\0') || containsControlCharacter(normalizedValue)) {
+      return 'invalid';
+    }
+
+    return Array.from(normalizedValue).slice(0, maxLength).join('') || 'unknown';
   }
 
   private async hashPassword(password: string): Promise<string> {
