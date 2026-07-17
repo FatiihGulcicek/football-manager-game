@@ -13,6 +13,7 @@ import { ForgotPasswordDto, ForgotPasswordResponseDto } from '../dto/forgot-pass
 import { LoginDto, LoginResponseDto } from '../dto/login.dto';
 import { RefreshResponseDto } from '../dto/refresh.dto';
 import { RegisterDto, RegisterResponseDto } from '../dto/register.dto';
+import { ResetPasswordDto, ResetPasswordResponseDto } from '../dto/reset-password.dto';
 import {
   ResendVerificationDto,
   ResendVerificationResponseDto
@@ -34,6 +35,7 @@ import { LoginRequestContext, LoginService } from '../services/login.service';
 import { LogoutRequestContext, LogoutService } from '../services/logout.service';
 import { RefreshRequestContext, RefreshService } from '../services/refresh.service';
 import { RegisterService } from '../services/register.service';
+import { ResetPasswordRequestContext, ResetPasswordService } from '../services/reset-password.service';
 
 @Controller('auth')
 export class AuthController {
@@ -45,6 +47,8 @@ export class AuthController {
     private readonly emailVerificationResendService: EmailVerificationResendService,
     @Inject(ForgotPasswordService)
     private readonly forgotPasswordService: ForgotPasswordService,
+    @Inject(ResetPasswordService)
+    private readonly resetPasswordService: ResetPasswordService,
     @Inject(LoginService) private readonly loginService: LoginService,
     @Inject(RefreshService) private readonly refreshService: RefreshService,
     @Inject(LogoutService) private readonly logoutService: LogoutService,
@@ -89,6 +93,18 @@ export class AuthController {
     return this.forgotPasswordService.forgotPassword(
       dto,
       createForgotPasswordRequestContext(request, this.config)
+    );
+  }
+
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  async resetPassword(
+    @Body() dto: ResetPasswordDto,
+    @Req() request: AuthHttpRequest
+  ): Promise<ResetPasswordResponseDto> {
+    return this.resetPasswordService.resetPassword(
+      dto,
+      createResetPasswordRequestContext(request, this.config)
     );
   }
 
@@ -210,6 +226,16 @@ function createForgotPasswordRequestContext(
   request: AuthHttpRequest,
   config: AuthConfig
 ): ForgotPasswordRequestContext {
+  return {
+    requestId: readHeader(request, 'x-request-id'),
+    clientIp: resolveClientIp(request, config)
+  };
+}
+
+function createResetPasswordRequestContext(
+  request: AuthHttpRequest,
+  config: AuthConfig
+): ResetPasswordRequestContext {
   return {
     requestId: readHeader(request, 'x-request-id'),
     clientIp: resolveClientIp(request, config)

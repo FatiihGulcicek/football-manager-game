@@ -28,6 +28,7 @@ import { RefreshService } from './services/refresh.service';
 import { RefreshTokenService } from './services/refresh-token.service';
 import { RegisterRateLimitService } from './services/register-rate-limit.service';
 import { RegisterService } from './services/register.service';
+import { ResetPasswordService } from './services/reset-password.service';
 import { SessionManagementService } from './services/session-management.service';
 import { SessionService } from './services/session.service';
 import { TokenHashService } from './services/token-hash.service';
@@ -58,6 +59,7 @@ import { TokenHashService } from './services/token-hash.service';
     },
     PasswordResetRateLimitService,
     ForgotPasswordService,
+    ResetPasswordService,
     SessionService,
     SessionManagementService,
     RefreshTokenService,
@@ -82,6 +84,7 @@ import { TokenHashService } from './services/token-hash.service';
     PASSWORD_RESET_DELIVERY_SERVICE,
     PasswordResetRateLimitService,
     ForgotPasswordService,
+    ResetPasswordService,
     SessionService,
     SessionManagementService,
     RefreshTokenService,
