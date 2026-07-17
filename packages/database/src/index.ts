@@ -1,4 +1,4 @@
-export { LoginContext, Prisma, PrismaClient, UserRole } from '@prisma/client';
+export { ClubBoardExpectation, ClubStatus, LoginContext, Prisma, PrismaClient, UserRole } from '@prisma/client';
 export type {
   AuditLog,
   Club,

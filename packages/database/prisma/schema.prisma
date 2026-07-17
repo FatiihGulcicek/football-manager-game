@@ -18,6 +18,21 @@ enum LoginContext {
   ADMIN
 }
 
+enum ClubStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+enum ClubBoardExpectation {
+  AVOID_RELEGATION
+  STABLE_SEASON
+  TOP_HALF
+  TITLE_CHALLENGE
+  PROMOTION_PUSH
+  DEVELOP_PLAYERS
+}
+
 model User {
   id                      String                   @id @default(uuid())
   email                   String                   @unique
@@ -29,7 +44,6 @@ model User {
   createdAt               DateTime                 @default(now())
   updatedAt               DateTime                 @updatedAt
   managerProfile          ManagerProfile?
-  club                    Club?
   sessions                UserSession[]
   emailVerificationTokens EmailVerificationToken[]
   passwordResetTokens     PasswordResetToken[]
@@ -49,21 +63,45 @@ model ManagerProfile {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  managedClub Club?    @relation("ClubCurrentManager")
 }
 
 model Club {
-  id              String   @id @default(uuid())
-  ownerId         String   @unique
-  name            String
-  shortName       String
-  slug            String   @unique
-  balance         Decimal  @default(0) @db.Decimal(14, 2)
-  premiumCurrency Int      @default(0)
-  reputation      Int      @default(1)
-  foundedAt       DateTime @default(now())
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  owner           User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  id                      String               @id @default(uuid())
+  currentManagerProfileId String?              @unique @map("ownerId")
+  name                    String
+  shortName               String
+  slug                    String               @unique
+  threeLetterCode         String?              @unique
+  primaryColor            String               @default("#1F4E79")
+  secondaryColor          String               @default("#FFFFFF")
+  logoAssetKey            String?
+  countryCode             String               @default("TR")
+  city                    String               @default("Unknown")
+  status                  ClubStatus           @default(ACTIVE)
+  balance                 Decimal              @default(0) @db.Decimal(14, 2)
+  transferBudget          Decimal              @default(0) @db.Decimal(14, 2)
+  wageBudget              Decimal              @default(0) @db.Decimal(14, 2)
+  currencyCode            String               @default("EUR")
+  premiumCurrency         Int                  @default(0)
+  reputation              Int                  @default(1)
+  fanBase                 Int                  @default(1000)
+  foundedYear             Int?
+  foundedAt               DateTime             @default(now())
+  managerAssignedAt       DateTime?
+  stadiumName             String               @default("Main Stadium")
+  stadiumCapacity         Int                  @default(10000)
+  trainingFacilityLevel   Int                  @default(1)
+  youthFacilityLevel      Int                  @default(1)
+  currentLeagueId         String?
+  divisionLevel           Int?
+  boardExpectation        ClubBoardExpectation @default(STABLE_SEASON)
+  createdAt               DateTime             @default(now())
+  updatedAt               DateTime             @updatedAt
+  currentManagerProfile   ManagerProfile?      @relation("ClubCurrentManager", fields: [currentManagerProfileId], references: [id], onDelete: SetNull)
+
+  @@index([status, name, id])
+  @@index([countryCode, status])
 }
 
 model UserSession {
