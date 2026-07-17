@@ -7,7 +7,7 @@ type NewsFeedProps = {
 
 export function NewsFeed({ items }: NewsFeedProps) {
   return (
-    <Panel ariaLabel="Club news">
+    <Panel className="dashboard-news" ariaLabel="Club news">
       <SectionHeader eyebrow="Inbox pulse" title="Club news" />
       {items.length > 0 ? (
         <ul className="news-feed">

@@ -2,6 +2,8 @@
 
 Sprint 5A sonrasi ilk frontend sprinti, `apps/web` icinde premium futbol menajer dashboard temelini kurar. Bu sprint yalniz dashboard UI foundation kapsamindadir; auth UI, real session wiring, live fixtures, oyuncular, transferler ve detayli finans backend ihtiyaclari sonraki sprintlere kalir.
 
+Visual polish kararlari ve final dashboard kompozisyonu `docs/ui/DASHBOARD-POLISH.md` dosyasinda belgelenir.
+
 ## Layout Architecture
 
 - Route: `/dashboard`.

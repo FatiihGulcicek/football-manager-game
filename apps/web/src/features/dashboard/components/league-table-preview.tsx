@@ -8,7 +8,7 @@ type LeagueTablePreviewProps = {
 
 export function LeagueTablePreview({ rows }: LeagueTablePreviewProps) {
   return (
-    <Panel className="league-panel" ariaLabel="League standings preview">
+    <Panel className="dashboard-table league-panel" ariaLabel="League standings preview">
       <SectionHeader eyebrow="Table" title="League standings" />
       {rows.length > 0 ? (
         <div className="table-scroll">

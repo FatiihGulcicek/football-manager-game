@@ -8,7 +8,7 @@ type CalendarPreviewProps = {
 
 export function CalendarPreview({ items }: CalendarPreviewProps) {
   return (
-    <Panel ariaLabel="Calendar preview">
+    <Panel className="dashboard-calendar" ariaLabel="Calendar preview">
       <SectionHeader eyebrow="Schedule" title="Calendar" />
       {items.length > 0 ? (
         <ol className="calendar-list">

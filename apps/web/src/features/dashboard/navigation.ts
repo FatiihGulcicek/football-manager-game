@@ -20,35 +20,34 @@ import {
 import type { LucideIcon } from 'lucide-react';
 
 export type NavigationItem = {
+  id: string;
   label: string;
   href: string;
   icon: LucideIcon;
   enabled: boolean;
+  showInMobileNav?: boolean;
 };
 
 export const navigationItems: NavigationItem[] = [
-  { label: 'Dashboard', href: '/dashboard', icon: Gauge, enabled: true },
-  { label: 'Squad', href: '/squad', icon: Users, enabled: false },
-  { label: 'Tactics', href: '/tactics', icon: ClipboardList, enabled: false },
-  { label: 'Transfers', href: '/transfers', icon: LineChart, enabled: false },
-  { label: 'Match Centre', href: '/match-centre', icon: Trophy, enabled: false },
-  { label: 'League / Cups', href: '/league', icon: Flag, enabled: false },
-  { label: 'Finance', href: '/finance', icon: BadgeDollarSign, enabled: false },
-  { label: 'Facilities', href: '/facilities', icon: Building2, enabled: false },
-  { label: 'Youth Academy', href: '/youth-academy', icon: GraduationCap, enabled: false },
-  { label: 'Scouting', href: '/scouting', icon: UserSearch, enabled: false },
-  { label: 'Staff', href: '/staff', icon: Shield, enabled: false },
-  { label: 'Inbox', href: '/inbox', icon: Inbox, enabled: false },
-  { label: 'Calendar', href: '/calendar', icon: CalendarDays, enabled: false },
-  { label: 'Club', href: '/club', icon: Landmark, enabled: false },
-  { label: 'Board', href: '/board', icon: Dumbbell, enabled: false },
-  { label: 'Settings', href: '/settings', icon: Settings, enabled: false }
+  { id: 'dashboard', label: 'Dashboard', href: '/dashboard', icon: Gauge, enabled: true, showInMobileNav: true },
+  { id: 'squad', label: 'Squad', href: '/squad', icon: Users, enabled: false, showInMobileNav: true },
+  { id: 'tactics', label: 'Tactics', href: '/tactics', icon: ClipboardList, enabled: false, showInMobileNav: true },
+  { id: 'transfers', label: 'Transfers', href: '/transfers', icon: LineChart, enabled: false },
+  { id: 'match-centre', label: 'Match Centre', href: '/match-centre', icon: Trophy, enabled: false },
+  { id: 'league', label: 'League / Cups', href: '/league', icon: Flag, enabled: false },
+  { id: 'finance', label: 'Finance', href: '/finance', icon: BadgeDollarSign, enabled: false },
+  { id: 'facilities', label: 'Facilities', href: '/facilities', icon: Building2, enabled: false },
+  { id: 'youth-academy', label: 'Youth Academy', href: '/youth-academy', icon: GraduationCap, enabled: false },
+  { id: 'scouting', label: 'Scouting', href: '/scouting', icon: UserSearch, enabled: false },
+  { id: 'staff', label: 'Staff', href: '/staff', icon: Shield, enabled: false },
+  { id: 'inbox', label: 'Inbox', href: '/inbox', icon: Inbox, enabled: false },
+  { id: 'calendar', label: 'Calendar', href: '/calendar', icon: CalendarDays, enabled: false, showInMobileNav: true },
+  { id: 'club', label: 'Club', href: '/club', icon: Landmark, enabled: false },
+  { id: 'board', label: 'Board', href: '/board', icon: Dumbbell, enabled: false },
+  { id: 'settings', label: 'Settings', href: '/settings', icon: Settings, enabled: false }
 ];
 
-export const mobileNavigationItems = [
-  navigationItems[0],
-  navigationItems[1],
-  navigationItems[2],
-  navigationItems[12],
-  { label: 'Search', href: '/dashboard', icon: Search, enabled: false }
+export const mobileNavigationItems: NavigationItem[] = [
+  ...navigationItems.filter((item) => item.showInMobileNav),
+  { id: 'search', label: 'Search', href: '/dashboard', icon: Search, enabled: false, showInMobileNav: true }
 ];
