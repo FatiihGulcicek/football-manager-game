@@ -5,6 +5,8 @@ import { AuthSessionsController } from './controllers/auth-sessions.controller';
 import { AuthController } from './controllers/auth.controller';
 import { AccessTokenGuard } from './guards/access-token.guard';
 import { AccessTokenService } from './services/access-token.service';
+import { EmailVerificationRateLimitService } from './services/email-verification-rate-limit.service';
+import { EmailVerificationService } from './services/email-verification.service';
 import { LoginRateLimitService } from './services/login-rate-limit.service';
 import { LoginService } from './services/login.service';
 import { LogoutService } from './services/logout.service';
@@ -30,6 +32,8 @@ import { TokenHashService } from './services/token-hash.service';
     PasswordService,
     TokenHashService,
     AccessTokenService,
+    EmailVerificationRateLimitService,
+    EmailVerificationService,
     SessionService,
     SessionManagementService,
     RefreshTokenService,
@@ -46,6 +50,8 @@ import { TokenHashService } from './services/token-hash.service';
     TokenHashService,
     AccessTokenService,
     AccessTokenGuard,
+    EmailVerificationRateLimitService,
+    EmailVerificationService,
     SessionService,
     SessionManagementService,
     RefreshTokenService,

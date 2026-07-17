@@ -11,6 +11,7 @@ import {
   AUTH_LOGOUT_INVALID_BODY_CODE,
   AUTH_LOGOUT_INVALID_BODY_MESSAGE
 } from '../errors/auth-logout-invalid-body.exception';
+import { EmailVerificationService } from '../services/email-verification.service';
 import { LoginService } from '../services/login.service';
 import { LogoutService } from '../services/logout.service';
 import { RefreshService } from '../services/refresh.service';
@@ -489,6 +490,12 @@ async function createAuthLogoutApplication(
         provide: LoginService,
         useValue: {
           login: vi.fn()
+        }
+      },
+      {
+        provide: EmailVerificationService,
+        useValue: {
+          verifyEmail: vi.fn()
         }
       },
       {
