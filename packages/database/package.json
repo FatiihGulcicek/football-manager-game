@@ -1,0 +1,25 @@
+{
+  "name": "@football-manager/database",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint . --ext .ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "db:generate": "cd ../.. && prisma generate --schema packages/database/prisma/schema.prisma",
+    "db:migrate": "cd ../.. && prisma migrate dev --schema packages/database/prisma/schema.prisma --name init_core_identity",
+    "db:deploy": "cd ../.. && prisma migrate deploy --schema packages/database/prisma/schema.prisma",
+    "db:studio": "cd ../.. && prisma studio --schema packages/database/prisma/schema.prisma",
+    "db:format": "cd ../.. && prisma format --schema packages/database/prisma/schema.prisma",
+    "db:validate": "cd ../.. && prisma validate --schema packages/database/prisma/schema.prisma"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.20.0"
+  },
+  "devDependencies": {
+    "prisma": "^5.20.0",
+    "typescript": "^5.7.0"
+  }
+}
