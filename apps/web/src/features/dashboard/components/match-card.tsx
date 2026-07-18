@@ -9,7 +9,7 @@ type MatchCardProps = {
 
 export function MatchCard({ match }: MatchCardProps) {
   return (
-    <Panel ariaLabel="Upcoming match">
+    <Panel className="dashboard-match" ariaLabel="Upcoming match">
       <SectionHeader eyebrow="Next fixture" title="Upcoming match" />
       {match ? (
         <div className="match-card">

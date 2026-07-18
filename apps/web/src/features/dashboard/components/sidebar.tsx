@@ -25,7 +25,7 @@ export function Sidebar({ activePath }: SidebarProps) {
 
           if (!item.enabled) {
             return (
-              <button key={item.label} className="nav-item nav-item--disabled" type="button" disabled>
+              <button key={item.id} className="nav-item nav-item--disabled" type="button" disabled>
                 <Icon aria-hidden="true" size={18} />
                 <span>{item.label}</span>
               </button>
@@ -33,7 +33,7 @@ export function Sidebar({ activePath }: SidebarProps) {
           }
 
           return (
-            <Link key={item.label} className="nav-item" href={item.href} aria-current={isActive ? 'page' : undefined}>
+            <Link key={item.id} className="nav-item" href={item.href} aria-current={isActive ? 'page' : undefined}>
               <Icon aria-hidden="true" size={18} />
               <span>{item.label}</span>
             </Link>

@@ -20,12 +20,12 @@ export function DashboardView({ viewModel }: DashboardViewProps) {
       <div className="dashboard-grid">
         <ClubHero club={viewModel.club} financials={viewModel.financials} />
         <MatchCard match={viewModel.upcomingMatch} />
-        <TeamFormCard results={viewModel.teamForm} />
         <LeagueTablePreview rows={viewModel.standings} />
+        <TeamFormCard results={viewModel.teamForm} />
         <BoardExpectations expectations={viewModel.boardExpectations} />
+        <NewsFeed items={viewModel.news} />
         <QuickActions actions={viewModel.quickActions} />
         <PlayerSpotlightCard players={viewModel.featuredPlayers} />
-        <NewsFeed items={viewModel.news} />
         <CalendarPreview items={viewModel.calendar} />
       </div>
     </AppShell>

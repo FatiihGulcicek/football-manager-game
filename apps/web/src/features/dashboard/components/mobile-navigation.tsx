@@ -14,7 +14,7 @@ export function MobileNavigation({ activePath }: MobileNavigationProps) {
 
         if (!item.enabled) {
           return (
-            <button key={item.label} className="mobile-nav-item mobile-nav-item--disabled" type="button" disabled>
+            <button key={item.id} className="mobile-nav-item mobile-nav-item--disabled" type="button" disabled>
               <Icon aria-hidden="true" size={20} />
               <span>{item.label}</span>
             </button>
@@ -23,7 +23,7 @@ export function MobileNavigation({ activePath }: MobileNavigationProps) {
 
         return (
           <Link
-            key={item.label}
+            key={item.id}
             className="mobile-nav-item"
             href={item.href}
             aria-current={isActive ? 'page' : undefined}

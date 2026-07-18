@@ -20,6 +20,11 @@ describe('Dashboard foundation', () => {
     expect(html).toContain('League standings');
     expect(html).toContain('Featured players');
     expect(html).toContain('Calendar');
+    expect(html).toContain('Finance room');
+    expect(html).toContain('Budget control');
+    expect(html).toContain('dashboard-match');
+    expect(html).toContain('dashboard-table');
+    expect(html).toContain('dashboard-form');
   });
 
   it('marks the active dashboard navigation item', () => {
@@ -34,6 +39,17 @@ describe('Dashboard foundation', () => {
 
     expect(html).toContain('aria-label="Mobile navigation"');
     expect(html).toContain('Dashboard');
+  });
+
+  it('selects mobile navigation items with stable ids instead of magic array indexes', () => {
+    const navigationSource = readFileSync(join(process.cwd(), 'src/features/dashboard/navigation.ts'), 'utf8');
+
+    expect(navigationSource).toContain('showInMobileNav');
+    expect(navigationSource).toContain("id: 'dashboard'");
+    expect(navigationSource).not.toContain('navigationItems[0]');
+    expect(navigationSource).not.toContain('navigationItems[1]');
+    expect(navigationSource).not.toContain('navigationItems[2]');
+    expect(navigationSource).not.toContain('navigationItems[12]');
   });
 
   it('renders financial values as formatted strings', () => {
@@ -51,6 +67,10 @@ describe('Dashboard foundation', () => {
     expect(html).toContain('No fixture scheduled');
     expect(html).toContain('No league table yet');
     expect(html).toContain('No calendar items');
+    expect(html).toContain('No board expectations');
+    expect(html).toContain('No featured players');
+    expect(html).toContain('No quick actions');
+    expect(html).toContain('No recent form');
   });
 
   it('does not expose internal manager identifiers from club API data', () => {
@@ -99,13 +119,18 @@ describe('Dashboard foundation', () => {
     const css = readFileSync(join(process.cwd(), 'src/app/globals.css'), 'utf8');
 
     expect(css).toContain('--color-bg-deep');
+    expect(css).toContain('--color-bg-panel');
+    expect(css).toContain('--color-primary-tint');
     expect(css).toContain('--color-surface');
     expect(css).toContain('--radius-panel');
     expect(css).toContain('.dashboard-theme');
     expect(css).toContain('.app-shell');
     expect(css).toContain('.game-panel');
     expect(css).toContain('.mobile-nav');
-    expect(css).toContain('.dashboard-grid > .game-panel:nth-child(2)');
+    expect(css).toContain('.dashboard-match');
+    expect(css).toContain('.dashboard-table');
+    expect(css).toContain('.dashboard-players');
     expect(css).not.toMatch(/(^|\n)\.game-panel:nth-child/);
+    expect(css).not.toContain('.dashboard-grid > .game-panel:nth-child');
   });
 });

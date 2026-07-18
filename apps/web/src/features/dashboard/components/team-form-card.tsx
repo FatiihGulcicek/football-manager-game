@@ -1,5 +1,5 @@
 import type { TeamFormResult } from '../types';
-import { Panel, SectionHeader } from './primitives';
+import { EmptyState, Panel, SectionHeader } from './primitives';
 
 type TeamFormCardProps = {
   results: TeamFormResult[];
@@ -9,15 +9,19 @@ export function TeamFormCard({ results }: TeamFormCardProps) {
   const wins = results.filter((result) => result === 'W').length;
 
   return (
-    <Panel ariaLabel="Team form">
+    <Panel className="dashboard-form" ariaLabel="Team form">
       <SectionHeader eyebrow="Last five" title="Team form" />
-      <div className="team-form-card">
-        <TeamFormStrip results={results} label="Northbridge FC form" />
-        <div className="form-summary">
-          <strong>{wins}/5</strong>
-          <span>Recent wins</span>
+      {results.length > 0 ? (
+        <div className="team-form-card">
+          <TeamFormStrip results={results} label="Northbridge FC form" />
+          <div className="form-summary">
+            <strong>{wins}/5</strong>
+            <span>Recent wins</span>
+          </div>
         </div>
-      </div>
+      ) : (
+        <EmptyState title="No recent form" description="Recent match results will appear after the club plays." />
+      )}
     </Panel>
   );
 }

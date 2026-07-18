@@ -25,13 +25,13 @@ export function Topbar({ managerName }: TopbarProps) {
           <Bell aria-hidden="true" size={19} />
           <span className="notification-dot" aria-hidden="true" />
         </button>
-        <button className="icon-button" type="button" aria-label="Inbox">
+        <button className="icon-button topbar-action--desktop" type="button" aria-label="Inbox">
           <Inbox aria-hidden="true" size={19} />
         </button>
-        <button className="icon-button" type="button" aria-label="Help">
+        <button className="icon-button topbar-action--desktop" type="button" aria-label="Help">
           <CircleHelp aria-hidden="true" size={19} />
         </button>
-        <button className="profile-button" type="button" aria-label="Manager profile menu">
+        <button className="profile-button topbar-action--desktop" type="button" aria-label="Manager profile menu">
           <UserRound aria-hidden="true" size={18} />
           <span>{managerName}</span>
         </button>

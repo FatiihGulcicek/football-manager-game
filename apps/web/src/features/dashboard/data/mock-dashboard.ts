@@ -162,6 +162,10 @@ export const emptyDashboard: DashboardViewModel = {
   ...mockDashboard,
   upcomingMatch: null,
   standings: [],
+  teamForm: [],
   news: [],
+  boardExpectations: [],
+  quickActions: [],
+  featuredPlayers: [],
   calendar: []
 };
