@@ -30,7 +30,7 @@ export type NavigationItem = {
 
 export const navigationItems: NavigationItem[] = [
   { id: 'dashboard', label: 'Dashboard', href: '/dashboard', icon: Gauge, enabled: true, showInMobileNav: true },
-  { id: 'squad', label: 'Squad', href: '/squad', icon: Users, enabled: false, showInMobileNav: true },
+  { id: 'squad', label: 'Squad', href: '/squad', icon: Users, enabled: true, showInMobileNav: true },
   { id: 'tactics', label: 'Tactics', href: '/tactics', icon: ClipboardList, enabled: false, showInMobileNav: true },
   { id: 'transfers', label: 'Transfers', href: '/transfers', icon: LineChart, enabled: false },
   { id: 'match-centre', label: 'Match Centre', href: '/match-centre', icon: Trophy, enabled: false },
